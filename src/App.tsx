@@ -661,9 +661,17 @@ export default function App() {
                 <h2 className="text-3xl md:text-5xl font-black text-[#000F1D] mb-6 tracking-tight">
                   주요 취급 물품 <span className="text-[#C29B2C]">목록</span>
                 </h2>
-                <p className="text-slate-800 text-lg font-medium">
+                <p className="text-slate-800 text-lg font-medium mb-3">
                   매장에서 직접 보시고 선택하실 수 있는 믿을 수 있는 제품들입니다. 클릭하여 상세 정보를 확인하세요.
                 </p>
+                <div className="inline-flex items-start sm:items-center gap-2.5 p-3.5 sm:px-4 sm:py-3 bg-white border border-[#C29B2C]/40 rounded-2xl shadow-sm text-left">
+                  <span className="shrink-0 px-2.5 py-1 bg-[#C29B2C] text-[#000F1D] rounded-full text-xs font-black">
+                    안내
+                  </span>
+                  <p className="text-slate-700 text-sm sm:text-base font-semibold leading-relaxed">
+                    김포에서 가장 크고 오래 의료기 판매 및 병원소모품을 취급합니다. <span className="text-[#000F1D] font-bold">사진 이외의 물품을 원하시면 연락부탁드립니다.</span>
+                  </p>
+                </div>
               </div>
               
               {isAdmin && (
