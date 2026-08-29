@@ -1,0 +1,24 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Medical equipment product for sale or rental",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Name of the product" },
+        "imageUrl": { "type": "string", "description": "URL of the product image" },
+        "category": { "type": "string", "enum": ["sale", "rental", "premium"], "description": "Category of the product" },
+        "description": { "type": "string", "description": "Detailed description" },
+        "additionalImages": { "type": "array", "items": { "type": "string" }, "description": "Gallery of images" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["name", "imageUrl", "category", "createdAt"]
+    }
+  },
+  "firestore": {
+    "products": {
+      "schema": "Product",
+      "description": "Collection of medical equipment products"
+    }
+  }
+}

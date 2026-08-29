@@ -1,0 +1,9 @@
+{
+  "name": "김포 제일하나의료기",
+  "description": "김포 어르신의 건강한 내일을 위한 복지용구 전문 매장. 판매, 대여, 프리미엄 맞춤 케어 서비스를 제공합니다.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": []
+}
