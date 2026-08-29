@@ -8,7 +8,7 @@ import {
   LogIn, 
   LogOut, 
   ChevronRight, 
-  ChevronLeft,
+  ChevronLeft, 
   Package, 
   ShoppingBag, 
   Heart, 
@@ -21,7 +21,9 @@ import {
   RotateCcw,
   Camera,
   UploadCloud,
-  Maximize2
+  Maximize2,
+  AlertTriangle,
+  CheckCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CATEGORIES, Product, INITIAL_PRODUCTS, StorePhoto, DEFAULT_STORE_PHOTOS } from './constants';
@@ -32,7 +34,14 @@ import {
   persistStorePhotosLocally, 
   loadFullProductsFromDB, 
   loadFullStorePhotosFromDB, 
-  compressImageFile 
+  compressImageFile,
+  recordDeletedProductId,
+  unrecordDeletedProductId,
+  recordDeletedPhotoId,
+  unrecordDeletedPhotoId,
+  getDeletedProductIds,
+  getDeletedPhotoIds,
+  clearDeletedProductRecords
 } from './lib/persistentStorage';
 import { 
   auth, 
@@ -67,6 +76,15 @@ export default function App() {
   const [showEmergencyPassword, setShowEmergencyPassword] = useState(false);
   const [emergencyPasswordInput, setEmergencyPasswordInput] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'rental' | 'sale' | 'premium'>('all');
+
+  // 사용자 친화적 실시간 토스트 알림 및 커스텀 삭제 모달
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState<{
+    type: 'product' | 'photo';
+    id: string;
+    name: string;
+  } | null>(null);
+  const [isExecutingDelete, setIsExecutingDelete] = useState(false);
   
   // 매장 사진 상태 관리
   const [storePhotos, setStorePhotos] = useState<StorePhoto[]>(getInitialStorePhotos);
@@ -89,11 +107,37 @@ export default function App() {
     description: '', 
     additionalImages: [] as string[] 
   });
+  const [isProcessingImages, setIsProcessingImages] = useState(false);
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const multiFileInputRef = useRef<HTMLInputElement>(null);
 
   const ADMIN_PASSWORDS = ['01087857295*', '7295', 'hana7295', '01087857295'];
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToast({ message, type });
+  };
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => {
+        setToast(null);
+      }, 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
+  const getTimestampMillis = (val: any): number => {
+    if (!val) return 0;
+    if (typeof val.toMillis === 'function') return val.toMillis();
+    if (typeof val.seconds === 'number') return val.seconds * 1000;
+    if (typeof val === 'number') return val;
+    if (typeof val === 'string') {
+      const parsed = Date.parse(val);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+  };
 
   useEffect(() => {
     // Check saved local admin session
@@ -125,7 +169,7 @@ export default function App() {
       setLoading(false);
     });
 
-    // 상품 목록 실시간 리스너
+    // 상품 목록 실시간 리스너 (Firestore Cloud Sync)
     const productsCollection = collection(db, 'products');
     const unsubscribeFirestore = onSnapshot(productsCollection, (snapshot) => {
       if (!snapshot.empty) {
@@ -136,29 +180,29 @@ export default function App() {
 
         // Client-side robust sorting by createdAt
         prods.sort((a, b) => {
-          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
-          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
+          const timeA = getTimestampMillis(a.createdAt);
+          const timeB = getTimestampMillis(b.createdAt);
           return timeB - timeA;
         });
 
         setProducts(prods);
         persistProductsLocally(prods);
       } else {
-        // If Firestore is empty, preserve existing products and persist
-        setProducts(prev => {
-          if (prev.length > 0) {
-            persistProductsLocally(prev);
-            return prev;
+        // If Firestore is empty, maintain IndexedDB/LocalStorage data without erasing user custom items
+        loadFullProductsFromDB().then((cached) => {
+          if (cached && cached.length > 0) {
+            setProducts(cached);
+          } else {
+            const defaults = getInitialProducts();
+            setProducts(defaults);
           }
-          persistProductsLocally(INITIAL_PRODUCTS);
-          return INITIAL_PRODUCTS;
         });
       }
     }, (error) => {
       console.warn('Firestore products listener info:', error);
     });
 
-    // 매장 사진 실시간 리스너
+    // 매장 사진 실시간 리스너 (Firestore Cloud Sync)
     const storePhotosCollection = collection(db, 'store_photos');
     const unsubscribeStorePhotos = onSnapshot(storePhotosCollection, (snapshot) => {
       if (!snapshot.empty) {
@@ -168,22 +212,22 @@ export default function App() {
         })) as StorePhoto[];
 
         photos.sort((a, b) => {
-          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
-          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
+          const timeA = getTimestampMillis(a.createdAt);
+          const timeB = getTimestampMillis(b.createdAt);
           return timeB - timeA;
         });
 
         setStorePhotos(photos);
         persistStorePhotosLocally(photos);
       } else {
-        // If Firestore store_photos is empty, preserve existing photos and persist
-        setStorePhotos(prev => {
-          if (prev.length > 0) {
-            persistStorePhotosLocally(prev);
-            return prev;
+        // If Firestore is empty, preserve local photos
+        loadFullStorePhotosFromDB().then((cached) => {
+          if (cached && cached.length > 0) {
+            setStorePhotos(cached);
+          } else {
+            const defaults = getInitialStorePhotos();
+            setStorePhotos(defaults);
           }
-          persistStorePhotosLocally(DEFAULT_STORE_PHOTOS);
-          return DEFAULT_STORE_PHOTOS;
         });
       }
     }, (err) => {
@@ -205,7 +249,7 @@ export default function App() {
       if (loggedInUser) {
         setIsAdmin(true);
         localStorage.setItem('jeil_hana_admin_active', 'true');
-        alert(`Google 계정(${loggedInUser.email || loggedInUser.displayName || '인증 완료'})으로 로그인되었습니다.\n이제 새 상품 등록 및 삭제, 수정이 가능합니다.`);
+        showToast(`Google 계정(${loggedInUser.email || loggedInUser.displayName || '관리자'})으로 로그인되었습니다.`, 'success');
       }
       setShowLogin(false);
     } catch (error: any) {
@@ -242,9 +286,9 @@ export default function App() {
       setShowLogin(false);
       setEmergencyPasswordInput('');
       setLoginError(null);
-      alert('관리자 인증이 완료되었습니다. 상품 등록, 수정, 삭제가 가능합니다.');
+      showToast('관리자 인증이 완료되었습니다. 상품 등록, 수정, 삭제가 가능합니다.', 'success');
     } else {
-      alert('비밀번호가 일치하지 않습니다. (기본 비밀번호: 7295)');
+      showToast('비밀번호가 일치하지 않습니다. (기본 비밀번호: 7295)', 'error');
     }
   };
 
@@ -255,15 +299,15 @@ export default function App() {
       setUser(null);
       setIsAdmin(false);
       localStorage.removeItem('jeil_hana_admin_active');
-      alert('로그아웃 되었습니다.');
+      showToast('로그아웃 되었습니다.', 'info');
     }
   };
 
   // Seed default products to Firestore if needed
   const seedDefaultProducts = async () => {
-    if (!window.confirm('기본 의료기기 8개 상품을 데이터베이스에 일괄 등록하시겠습니까?')) return;
     try {
       setIsSeeding(true);
+      clearDeletedProductRecords();
       const seededList: Product[] = [];
       for (const item of INITIAL_PRODUCTS) {
         const prodId = 'prod_' + item.id;
@@ -282,11 +326,11 @@ export default function App() {
         }).catch(() => {});
       }
       setProducts(seededList);
-      persistProductsLocally(seededList);
-      alert('기본 상품이 성공적으로 데이터베이스 및 로컬 저장소에 등록되었습니다.');
+      await persistProductsLocally(seededList);
+      showToast('기본 8종 상품이 안전하게 복구 및 등록되었습니다.', 'success');
     } catch (error: any) {
       console.error('Seed error:', error);
-      alert('상품 등록 중 안내: ' + (error?.message || '처리되었습니다.'));
+      showToast('상품 등록 처리 완료: ' + (error?.message || '완료되었습니다.'), 'info');
     } finally {
       setIsSeeding(false);
     }
@@ -296,19 +340,28 @@ export default function App() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    if (isGallery) {
-      const fileArray = Array.from(files) as File[];
-      const compressedList = await Promise.all(fileArray.map(f => compressImageFile(f, 960, 0.78)));
-      const validImages = compressedList.filter(Boolean);
-      setFormState(prev => ({
-        ...prev,
-        additionalImages: [...prev.additionalImages, ...validImages]
-      }));
-    } else {
-      const compressed = await compressImageFile(files[0], 1080, 0.8);
-      if (compressed) {
-        setFormState(prev => ({ ...prev, imageUrl: compressed }));
+    try {
+      setIsProcessingImages(true);
+      if (isGallery) {
+        const fileArray = Array.from(files) as File[];
+        const compressedList = await Promise.all(fileArray.map(f => compressImageFile(f, 960, 0.78)));
+        const validImages = compressedList.filter(Boolean);
+        setFormState(prev => ({
+          ...prev,
+          additionalImages: [...prev.additionalImages, ...validImages]
+        }));
+      } else {
+        const compressed = await compressImageFile(files[0], 1080, 0.8);
+        if (compressed) {
+          setFormState(prev => ({ ...prev, imageUrl: compressed }));
+        }
       }
+    } catch (err) {
+      console.error('Image processing error:', err);
+      showToast('이미지 처리 중 문제가 발생했습니다. 다시 시도해 주세요.', 'error');
+    } finally {
+      setIsProcessingImages(false);
+      e.target.value = '';
     }
   };
 
@@ -316,15 +369,24 @@ export default function App() {
   const handleStorePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    const file = files[0];
-    const compressed = await compressImageFile(file, 1200, 0.8);
-    if (compressed) {
-      const defaultName = file.name.replace(/\.[^/.]+$/, '').slice(0, 25) || '매장 실물 사진';
-      setStorePhotoForm(prev => ({
-        ...prev,
-        imageUrl: compressed,
-        title: prev.title || defaultName
-      }));
+    try {
+      setIsUploadingStorePhoto(true);
+      const file = files[0];
+      const compressed = await compressImageFile(file, 1200, 0.8);
+      if (compressed) {
+        const defaultName = file.name.replace(/\.[^/.]+$/, '').slice(0, 25) || '매장 실물 사진';
+        setStorePhotoForm(prev => ({
+          ...prev,
+          imageUrl: compressed,
+          title: prev.title || defaultName
+        }));
+      }
+    } catch (err) {
+      console.error('Store photo processing error:', err);
+      showToast('사진 처리 중 오류가 발생했습니다.', 'error');
+    } finally {
+      setIsUploadingStorePhoto(false);
+      e.target.value = '';
     }
   };
 
@@ -332,13 +394,13 @@ export default function App() {
   const handleAddStorePhoto = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin) {
-      alert('매장 사진 관리는 관리자 로그인 후 가능합니다.');
+      showToast('매장 사진 관리는 관리자 로그인 후 가능합니다.', 'error');
       setShowLogin(true);
       return;
     }
 
     if (!storePhotoForm.imageUrl) {
-      alert('매장 사진을 업로드하거나 이미지 URL을 입력해주세요.');
+      showToast('매장 사진을 업로드하거나 이미지 URL을 입력해주세요.', 'error');
       return;
     }
 
@@ -347,6 +409,8 @@ export default function App() {
       const photoTitle = storePhotoForm.title.trim() || '김포 제일하나의료기 매장 사진';
       const photoDesc = storePhotoForm.description.trim() || '김포 제일하나의료기 매장 실물 모습입니다.';
       const photoId = 'photo_' + Date.now();
+
+      unrecordDeletedPhotoId(photoId);
 
       const newPhoto: StorePhoto = {
         id: photoId,
@@ -368,74 +432,42 @@ export default function App() {
           title: photoTitle,
           description: photoDesc,
           createdAt: serverTimestamp()
-        });
+        }, { merge: true });
       } catch (firestoreErr) {
         console.warn('Firestore sync note (photo safely saved locally):', firestoreErr);
       }
 
-      alert('매장 사진이 안전하게 저장되었습니다.');
+      showToast('매장 사진이 안전하게 저장되었습니다.', 'success');
       setStorePhotoForm({ title: '', imageUrl: '', description: '' });
       setShowStorePhotoAdminModal(false);
     } catch (err: any) {
       console.error('Add store photo error:', err);
-      alert('사진 저장 중 오류가 발생했습니다: ' + (err?.message || '다시 시도해주세요.'));
+      showToast('사진 저장 중 오류: ' + (err?.message || '다시 시도해주세요.'), 'error');
     } finally {
       setIsUploadingStorePhoto(false);
-    }
-  };
-
-  // 매장 사진 삭제 (관리자 전용)
-  const handleDeleteStorePhoto = async (id: string, title: string) => {
-    if (!isAdmin) {
-      alert('관리자 로그인 후 삭제할 수 있습니다.');
-      return;
-    }
-
-    if (!window.confirm(`'${title}' 매장 사진을 삭제하시겠습니까?`)) {
-      return;
-    }
-
-    try {
-      setDeletingStorePhotoId(id);
-      
-      // 1. Remove from local state & persistent storage immediately
-      const updatedPhotos = storePhotos.filter(p => p.id !== id);
-      setStorePhotos(updatedPhotos);
-      await persistStorePhotosLocally(updatedPhotos);
-      setActivePhotoIdx(prev => Math.max(0, Math.min(prev, updatedPhotos.length - 1)));
-
-      // 2. Remove from Firestore
-      try {
-        await deleteDoc(doc(db, 'store_photos', id));
-      } catch (err) {
-        console.warn('Firestore delete note:', err);
-      }
-
-      alert('매장 사진이 삭제되었습니다.');
-    } catch (err: any) {
-      console.error('Delete photo error:', err);
-      alert('매장 사진 삭제 처리 완료');
-    } finally {
-      setDeletingStorePhotoId(null);
     }
   };
 
   const addOrUpdateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin) {
-      alert('상품 관리는 관리자 인증 후 가능합니다.');
+      showToast('상품 관리는 관리자 인증 후 가능합니다.', 'error');
       setShowLogin(true);
       return;
     }
 
     if (!formState.name || !formState.imageUrl) {
-      alert('상품명과 이미지는 필수 항목입니다.');
+      showToast('상품명과 이미지는 필수 항목입니다.', 'error');
       return;
     }
 
     try {
       setIsSubmitting(true);
       const prodId = isEditing || ('prod_' + Date.now());
+
+      unrecordDeletedProductId(prodId);
+
+      const existingProd = products.find(p => p.id === prodId);
       const prodData: Product = {
         id: prodId,
         name: formState.name.trim(),
@@ -443,7 +475,7 @@ export default function App() {
         category: formState.category,
         description: formState.description.trim(),
         additionalImages: formState.additionalImages,
-        createdAt: new Date().toISOString()
+        createdAt: isEditing ? (existingProd?.createdAt || new Date().toISOString()) : new Date().toISOString()
       };
 
       // 1. Immediately update state and persistent storage
@@ -464,70 +496,127 @@ export default function App() {
           imageUrl: formState.imageUrl,
           category: formState.category,
           description: formState.description.trim(),
-          additionalImages: formState.additionalImages,
-          createdAt: serverTimestamp()
-        });
+          additionalImages: formState.additionalImages || [],
+          updatedAt: serverTimestamp(),
+          createdAt: isEditing ? (existingProd?.createdAt || serverTimestamp()) : serverTimestamp()
+        }, { merge: true });
       } catch (firestoreErr) {
         console.warn('Firestore product sync note (safely saved locally):', firestoreErr);
       }
 
       if (isEditing) {
-        alert('상품 정보가 성공적으로 수정 및 저장되었습니다.');
+        showToast('상품 정보가 성공적으로 수정 및 저장되었습니다.', 'success');
         setIsEditing(null);
       } else {
-        alert('새 상품이 성공적으로 등록 및 저장되었습니다.');
+        showToast('새 상품이 성공적으로 등록 및 저장되었습니다.', 'success');
       }
       setFormState({ name: '', imageUrl: '', category: 'rental', description: '', additionalImages: [] });
     } catch (error: any) {
       console.error('Save product error:', error);
-      alert('상품 저장 중 오류가 발생했습니다: ' + (error.message || '다시 시도해주세요.'));
+      showToast('상품 저장 중 오류가 발생했습니다: ' + (error.message || '다시 시도해주세요.'), 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const deleteProduct = async (id: string, name?: string) => {
+  // 삭제 요청 핸들러 (커스텀 인앱 확인 모달 띄우기)
+  const handleRequestDeleteProduct = (id: string, name?: string) => {
     if (!isAdmin) {
-      alert('상품 삭제는 관리자 인증 후 가능합니다.');
+      showToast('상품 삭제는 관리자 로그인 후 가능합니다.', 'error');
       setShowLogin(true);
       return;
     }
+    setDeleteConfirmModal({
+      type: 'product',
+      id,
+      name: name || '선택한 상품'
+    });
+  };
 
-    const targetName = name ? `"${name}"` : '이 상품';
-    if (!window.confirm(`${targetName}을(를) 정말 삭제하시겠습니까?\n삭제된 상품 정보는 복구할 수 없습니다.`)) {
+  const handleRequestDeleteStorePhoto = (id: string, title?: string) => {
+    if (!isAdmin) {
+      showToast('매장 사진 관리는 관리자 로그인 후 가능합니다.', 'error');
+      setShowLogin(true);
       return;
     }
+    setDeleteConfirmModal({
+      type: 'photo',
+      id,
+      name: title || '선택한 매장 사진'
+    });
+  };
+
+  // 실제 삭제 실행 (확인 모달에서 승인 시 호출)
+  const executeConfirmedDelete = async () => {
+    if (!deleteConfirmModal) return;
+    const { type, id, name } = deleteConfirmModal;
 
     try {
-      setDeletingId(id);
+      setIsExecutingDelete(true);
 
-      // 1. Optimistically remove from state & persistent storage immediately
-      const updated = products.filter(p => p.id !== id);
-      setProducts(updated);
-      await persistProductsLocally(updated);
+      if (type === 'product') {
+        setDeletingId(id);
+        recordDeletedProductId(id);
 
-      if (selectedProduct?.id === id) {
-        setSelectedProduct(null);
+        // 1. Local state & persistent storage update immediately
+        const updated = products.filter(p => p.id !== id);
+        setProducts(updated);
+        await persistProductsLocally(updated);
+
+        if (selectedProduct?.id === id) {
+          setSelectedProduct(null);
+        }
+        if (isEditing === id) {
+          setIsEditing(null);
+          setFormState({ name: '', imageUrl: '', category: 'rental', description: '', additionalImages: [] });
+        }
+
+        // 2. Firestore delete
+        try {
+          await deleteDoc(doc(db, 'products', id));
+        } catch (err) {
+          console.warn('Firestore doc delete note:', err);
+        }
+
+        showToast(`"${name}" 상품이 삭제되었습니다.`, 'success');
+      } else {
+        setDeletingStorePhotoId(id);
+        recordDeletedPhotoId(id);
+
+        // 1. Local state & persistent storage update immediately
+        const updatedPhotos = storePhotos.filter(p => p.id !== id);
+        setStorePhotos(updatedPhotos);
+        await persistStorePhotosLocally(updatedPhotos);
+        setActivePhotoIdx(prev => Math.max(0, Math.min(prev, updatedPhotos.length - 1)));
+
+        // 2. Firestore delete
+        try {
+          await deleteDoc(doc(db, 'store_photos', id));
+        } catch (err) {
+          console.warn('Firestore photo delete note:', err);
+        }
+
+        showToast(`"${name}" 매장 사진이 삭제되었습니다.`, 'success');
       }
-      if (isEditing === id) {
-        setIsEditing(null);
-        setFormState({ name: '', imageUrl: '', category: 'rental', description: '', additionalImages: [] });
-      }
 
-      // 2. Delete from Firestore
-      try {
-        await deleteDoc(doc(db, 'products', id));
-      } catch (err) {
-        console.warn('Firestore doc delete note:', err);
-      }
-
-      alert(`${targetName} 상품이 삭제되었습니다.`);
+      setDeleteConfirmModal(null);
     } catch (error: any) {
       console.error('Delete error:', error);
-      alert(`상품 삭제 중 오류가 발생했습니다: ${error?.message || '다시 시도해주세요.'}`);
+      showToast(`삭제 처리 중 오류: ${error?.message || '다시 시도해주세요.'}`, 'error');
     } finally {
+      setIsExecutingDelete(false);
       setDeletingId(null);
+      setDeletingStorePhotoId(null);
     }
+  };
+
+  // 호환용 레거시 함수
+  const deleteProduct = (id: string, name?: string) => {
+    handleRequestDeleteProduct(id, name);
+  };
+
+  const handleDeleteStorePhoto = (id: string, title: string) => {
+    handleRequestDeleteStorePhoto(id, title);
   };
 
   const startEdit = (product: Product) => {
@@ -1008,22 +1097,66 @@ export default function App() {
 
                   <div className="space-y-6">
                     <div>
-                      <label className="block text-sm font-black text-[#000F1D] mb-2">대표 이미지 *</label>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-sm font-black text-[#000F1D]">대표 이미지 *</label>
+                        {formState.imageUrl && (
+                          <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                            ✓ 이미지 준비 완료
+                          </span>
+                        )}
+                      </div>
+
                       <div 
-                        onClick={() => fileInputRef.current?.click()}
-                        className="border-2 border-dashed border-slate-200 rounded-3xl p-6 text-center cursor-pointer hover:border-[#C29B2C] transition-all bg-slate-50 relative group overflow-hidden"
+                        onClick={() => !isProcessingImages && fileInputRef.current?.click()}
+                        className={`border-2 border-dashed rounded-3xl p-5 text-center cursor-pointer transition-all relative group overflow-hidden ${
+                          formState.imageUrl 
+                            ? 'border-[#C29B2C] bg-white' 
+                            : 'border-slate-300 hover:border-[#C29B2C] bg-slate-50 hover:bg-[#C29B2C]/5'
+                        }`}
                       >
-                        {formState.imageUrl ? (
-                          <div className="relative aspect-[4/3] w-full rounded-2xl overflow-hidden">
-                            <img src={formState.imageUrl} className="w-full h-full object-cover" />
-                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                              <span className="text-white font-bold text-sm">이미지 변경</span>
+                        {isProcessingImages ? (
+                          <div className="py-12 flex flex-col items-center justify-center gap-3">
+                            <RotateCcw className="animate-spin text-[#C29B2C]" size={36} />
+                            <p className="text-sm font-black text-slate-800">사진 최적화 압축 처리 중...</p>
+                            <p className="text-xs text-slate-500">화질 손실 없이 가볍고 안전한 크기로 변환합니다.</p>
+                          </div>
+                        ) : formState.imageUrl ? (
+                          <div className="relative aspect-[4/3] w-full rounded-2xl overflow-hidden bg-slate-900 border border-slate-200">
+                            <img 
+                              src={formState.imageUrl} 
+                              alt="대표 이미지 미리보기" 
+                              className="w-full h-full object-cover" 
+                            />
+                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  fileInputRef.current?.click();
+                                }}
+                                className="px-3.5 py-2 bg-white text-slate-900 rounded-xl text-xs font-black shadow hover:bg-slate-100"
+                              >
+                                사진 변경
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setFormState(prev => ({ ...prev, imageUrl: '' }));
+                                }}
+                                className="px-3.5 py-2 bg-red-600 text-white rounded-xl text-xs font-black shadow hover:bg-red-700"
+                              >
+                                삭제
+                              </button>
                             </div>
                           </div>
                         ) : (
-                          <div className="py-12">
-                            <ImageIcon className="mx-auto text-slate-400 mb-2" size={40} />
-                            <p className="text-slate-600 font-bold text-sm">클릭하여 대표 이미지 업로드</p>
+                          <div className="py-10">
+                            <div className="w-12 h-12 rounded-2xl bg-[#000F1D] text-[#D4AF37] flex items-center justify-center mx-auto mb-3 shadow-md">
+                              <ImageIcon size={24} />
+                            </div>
+                            <p className="text-slate-800 font-extrabold text-sm">기기에서 대표 사진 선택 (클릭)</p>
+                            <p className="text-slate-400 text-xs mt-1">스마트폰 앨범 또는 PC 파일에서 선택 가능</p>
                           </div>
                         )}
                         <input 
@@ -1034,15 +1167,34 @@ export default function App() {
                           onChange={e => handleFileChange(e, false)}
                         />
                       </div>
+
+                      {/* 이미지 웹 URL 직접 입력 보조 필드 */}
+                      <div className="mt-2.5">
+                        <input
+                          type="text"
+                          placeholder="또는 이미지 웹 주소(URL) 직접 입력"
+                          value={formState.imageUrl}
+                          onChange={(e) => setFormState(prev => ({ ...prev, imageUrl: e.target.value }))}
+                          className="w-full px-4 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#C29B2C] font-medium"
+                        />
+                      </div>
                     </div>
 
                     <div>
-                      <label className="block text-sm font-black text-[#000F1D] mb-2">추가 상세 이미지들 (선택)</label>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-sm font-black text-[#000F1D]">추가 상세 이미지들 (선택)</label>
+                        {formState.additionalImages.length > 0 && (
+                          <span className="text-xs font-bold text-[#C29B2C]">
+                            {formState.additionalImages.length}장 등록됨
+                          </span>
+                        )}
+                      </div>
+                      
                       <div 
                         onClick={() => multiFileInputRef.current?.click()}
-                        className="border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center cursor-pointer hover:border-[#C29B2C] bg-slate-50"
+                        className="border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center cursor-pointer hover:border-[#C29B2C] bg-slate-50 hover:bg-[#C29B2C]/5 transition-all"
                       >
-                        <p className="text-slate-500 font-bold text-xs">+ 여러 장 추가하기</p>
+                        <p className="text-slate-700 font-bold text-xs">+ 기기에서 상세 사진 여러 장 추가하기</p>
                         <input 
                           type="file" 
                           ref={multiFileInputRef} 
@@ -1055,7 +1207,7 @@ export default function App() {
                       {formState.additionalImages.length > 0 && (
                         <div className="grid grid-cols-4 gap-2 mt-4">
                           {formState.additionalImages.map((img, i) => (
-                            <div key={i} className="relative aspect-square rounded-xl overflow-hidden group">
+                            <div key={i} className="relative aspect-square rounded-xl overflow-hidden group border border-slate-200 bg-slate-100">
                               <img src={img} className="w-full h-full object-cover" />
                               <button 
                                 type="button"
@@ -1066,7 +1218,7 @@ export default function App() {
                                     additionalImages: prev.additionalImages.filter((_, idx) => idx !== i)
                                   }));
                                 }}
-                                className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded-full opacity-90 group-hover:opacity-100 hover:scale-110 transition-all shadow"
                               >
                                 <X size={12} />
                               </button>
@@ -1091,10 +1243,16 @@ export default function App() {
                       )}
                       <button 
                         type="submit" 
-                        disabled={isSubmitting}
-                        className="flex-[2] bg-[#000F1D] text-[#D4AF37] py-4 rounded-2xl font-black hover:bg-[#001A33] shadow-xl active:scale-95 transition-all disabled:opacity-50"
+                        disabled={isSubmitting || isProcessingImages}
+                        className="flex-[2] bg-[#000F1D] text-[#D4AF37] py-4 rounded-2xl font-black hover:bg-[#001A33] shadow-xl active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                       >
-                        {isSubmitting ? '저장 중...' : (isEditing ? '상품 정보 수정 완료' : '새 상품 등록 완료')}
+                        <Plus size={18} />
+                        {isSubmitting 
+                          ? '저장소에 안전하게 기록 중...' 
+                          : isProcessingImages 
+                            ? '사진 압축 중...' 
+                            : (isEditing ? '상품 정보 수정 완료' : '새 상품 등록 완료')
+                        }
                       </button>
                     </div>
                   </div>
@@ -1884,6 +2042,93 @@ export default function App() {
                 </button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+
+        {/* 🛑 커스텀 삭제 확인 모달 (Delete Confirmation Modal) */}
+        {deleteConfirmModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-red-100 text-center"
+            >
+              <div className="w-14 h-14 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle size={28} />
+              </div>
+
+              <h3 className="text-base font-black text-slate-900 mb-2">
+                {deleteConfirmModal.type === 'product' ? '상품 삭제 확인' : '매장 사진 삭제 확인'}
+              </h3>
+
+              <p className="text-xs text-slate-600 mb-2 break-all">
+                <strong className="text-red-600 font-bold">"{deleteConfirmModal.name}"</strong> 항목을 정말 삭제하시겠습니까?
+              </p>
+              <p className="text-[11px] text-slate-400 mb-6">
+                삭제된 데이터는 즉시 목록에서 제거되며 안전하게 동기화됩니다.
+              </p>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={isExecutingDelete}
+                  onClick={() => setDeleteConfirmModal(null)}
+                  className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors disabled:opacity-50"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  disabled={isExecutingDelete}
+                  onClick={executeConfirmedDelete}
+                  className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-600/30 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isExecutingDelete ? (
+                    <span>삭제 중...</span>
+                  ) : (
+                    <>
+                      <Trash2 size={14} />
+                      <span>삭제 실행</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* 🔔 알림 토스트 UI */}
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 30, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            className={`fixed bottom-6 right-6 z-[120] max-w-sm px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border text-xs font-bold ${
+              toast.type === 'error'
+                ? 'bg-red-900 text-white border-red-700 shadow-red-950/40'
+                : toast.type === 'info'
+                ? 'bg-[#001A33] text-white border-blue-900 shadow-blue-950/40'
+                : 'bg-[#000F1D] text-[#D4AF37] border-[#C29B2C]/40 shadow-black/50'
+            }`}
+          >
+            {toast.type === 'error' ? (
+              <AlertTriangle size={16} className="text-red-400 shrink-0" />
+            ) : (
+              <CheckCircle size={16} className="text-[#C29B2C] shrink-0" />
+            )}
+            <span className="leading-snug">{toast.message}</span>
+            <button
+              onClick={() => setToast(null)}
+              className="ml-auto text-slate-400 hover:text-white p-1"
+            >
+              <X size={14} />
+            </button>
           </motion.div>
         )}
       </AnimatePresence>

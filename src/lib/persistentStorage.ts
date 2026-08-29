@@ -7,6 +7,8 @@ const STORE_PHOTOS = 'store_photos';
 
 const LOCAL_STORAGE_PRODUCTS_KEY = 'jeil_hana_products_v2';
 const LOCAL_STORAGE_PHOTOS_KEY = 'jeil_hana_store_photos_v2';
+const DELETED_PRODUCT_IDS_KEY = 'jeil_hana_deleted_product_ids_v2';
+const DELETED_PHOTO_IDS_KEY = 'jeil_hana_deleted_photo_ids_v2';
 
 // Open or create IndexedDB instance
 function openIndexedDB(): Promise<IDBDatabase> {
@@ -35,6 +37,83 @@ function openIndexedDB(): Promise<IDBDatabase> {
       reject((event.target as IDBOpenDBRequest).error);
     };
   });
+}
+
+// Track deleted IDs to prevent ghost restoration
+export function getDeletedProductIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DELETED_PRODUCT_IDS_KEY);
+    if (raw) {
+      return new Set(JSON.parse(raw));
+    }
+  } catch (e) {
+    console.warn('Error reading deleted product ids:', e);
+  }
+  return new Set();
+}
+
+export function recordDeletedProductId(id: string) {
+  try {
+    const set = getDeletedProductIds();
+    set.add(id);
+    localStorage.setItem(DELETED_PRODUCT_IDS_KEY, JSON.stringify(Array.from(set)));
+  } catch (e) {
+    console.warn('Error recording deleted product id:', e);
+  }
+}
+
+export function unrecordDeletedProductId(id: string) {
+  try {
+    const set = getDeletedProductIds();
+    if (set.has(id)) {
+      set.delete(id);
+      localStorage.setItem(DELETED_PRODUCT_IDS_KEY, JSON.stringify(Array.from(set)));
+    }
+  } catch (e) {
+    console.warn('Error unrecording deleted product id:', e);
+  }
+}
+
+export function getDeletedPhotoIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DELETED_PHOTO_IDS_KEY);
+    if (raw) {
+      return new Set(JSON.parse(raw));
+    }
+  } catch (e) {
+    console.warn('Error reading deleted photo ids:', e);
+  }
+  return new Set();
+}
+
+export function recordDeletedPhotoId(id: string) {
+  try {
+    const set = getDeletedPhotoIds();
+    set.add(id);
+    localStorage.setItem(DELETED_PHOTO_IDS_KEY, JSON.stringify(Array.from(set)));
+  } catch (e) {
+    console.warn('Error recording deleted photo id:', e);
+  }
+}
+
+export function unrecordDeletedPhotoId(id: string) {
+  try {
+    const set = getDeletedPhotoIds();
+    if (set.has(id)) {
+      set.delete(id);
+      localStorage.setItem(DELETED_PHOTO_IDS_KEY, JSON.stringify(Array.from(set)));
+    }
+  } catch (e) {
+    console.warn('Error unrecording deleted photo id:', e);
+  }
+}
+
+export function clearDeletedProductRecords() {
+  try {
+    localStorage.removeItem(DELETED_PRODUCT_IDS_KEY);
+  } catch (e) {
+    console.warn('Error clearing deleted product records:', e);
+  }
 }
 
 // Save list to IndexedDB
@@ -79,34 +158,36 @@ async function getFromIDB<T>(storeName: string): Promise<T[]> {
 
 // 1. Initial Synchronous / Cached Load for Products
 export function getInitialProducts(): Product[] {
+  const deletedIds = getDeletedProductIds();
   try {
     const cached = localStorage.getItem(LOCAL_STORAGE_PRODUCTS_KEY);
     if (cached) {
       const parsed = JSON.parse(cached);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+      if (Array.isArray(parsed)) {
+        return parsed.filter(p => !deletedIds.has(p.id));
       }
     }
   } catch (e) {
     console.warn('Error reading products from localStorage:', e);
   }
-  return INITIAL_PRODUCTS;
+  return INITIAL_PRODUCTS.filter(p => !deletedIds.has(p.id));
 }
 
 // 2. Initial Synchronous / Cached Load for Store Photos
 export function getInitialStorePhotos(): StorePhoto[] {
+  const deletedIds = getDeletedPhotoIds();
   try {
     const cached = localStorage.getItem(LOCAL_STORAGE_PHOTOS_KEY);
     if (cached) {
       const parsed = JSON.parse(cached);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+      if (Array.isArray(parsed)) {
+        return parsed.filter(p => !deletedIds.has(p.id));
       }
     }
   } catch (e) {
     console.warn('Error reading store photos from localStorage:', e);
   }
-  return DEFAULT_STORE_PHOTOS;
+  return DEFAULT_STORE_PHOTOS.filter(p => !deletedIds.has(p.id));
 }
 
 // Save products both to localStorage and IndexedDB
@@ -143,10 +224,11 @@ export async function persistStorePhotosLocally(photos: StorePhoto[]): Promise<v
 
 // Load full offline/IDB products if needed
 export async function loadFullProductsFromDB(): Promise<Product[] | null> {
+  const deletedIds = getDeletedProductIds();
   try {
     const idbProducts = await getFromIDB<Product>(STORE_PRODUCTS);
     if (idbProducts && idbProducts.length > 0) {
-      return idbProducts;
+      return idbProducts.filter(p => !deletedIds.has(p.id));
     }
   } catch (e) {
     console.warn('IDB products load error:', e);
@@ -156,10 +238,11 @@ export async function loadFullProductsFromDB(): Promise<Product[] | null> {
 
 // Load full offline/IDB store photos if needed
 export async function loadFullStorePhotosFromDB(): Promise<StorePhoto[] | null> {
+  const deletedIds = getDeletedPhotoIds();
   try {
     const idbPhotos = await getFromIDB<StorePhoto>(STORE_PHOTOS);
     if (idbPhotos && idbPhotos.length > 0) {
-      return idbPhotos;
+      return idbPhotos.filter(p => !deletedIds.has(p.id));
     }
   } catch (e) {
     console.warn('IDB store photos load error:', e);
@@ -171,12 +254,12 @@ export async function loadFullStorePhotosFromDB(): Promise<StorePhoto[] | null> 
  * Adaptive Image Compression Helper:
  * Compresses an image file (File or Blob) to a clean, lightweight Base64 JPEG URL.
  * Automatically resizes and scales down if necessary, ensuring the result is
- * well under Firestore's 1MB limit (< 150KB typically) while maintaining sharp visual quality.
+ * well under Firestore's 1MB limit (< 100KB typically) while maintaining crisp visual quality.
  */
 export function compressImageFile(
   file: File | Blob,
-  maxDimension = 1080,
-  initialQuality = 0.8
+  maxDimension = 800,
+  initialQuality = 0.75
 ): Promise<string> {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -216,19 +299,21 @@ export function compressImageFile(
         let quality = initialQuality;
         let dataUrl = canvas.toDataURL('image/jpeg', quality);
 
-        // If string size exceeds 300KB (~400,000 characters), scale quality down
-        if (dataUrl.length > 400000) {
-          quality = 0.68;
+        // If string size exceeds 150KB (~200,000 characters), scale quality down
+        if (dataUrl.length > 200000) {
+          quality = 0.65;
           dataUrl = canvas.toDataURL('image/jpeg', quality);
         }
-        // If still > 200KB and dimensions are large, resize canvas
-        if (dataUrl.length > 300000 && width > 720) {
-          canvas.width = Math.round(width * 0.75);
-          canvas.height = Math.round(height * 0.75);
+        // If still > 150KB, scale down dimensions
+        if (dataUrl.length > 200000 && (width > 600 || height > 600)) {
+          const scaledW = Math.round(width * 0.75);
+          const scaledH = Math.round(height * 0.75);
+          canvas.width = scaledW;
+          canvas.height = scaledH;
           ctx.fillStyle = '#FFFFFF';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+          ctx.fillRect(0, 0, scaledW, scaledH);
+          ctx.drawImage(img, 0, 0, scaledW, scaledH);
+          dataUrl = canvas.toDataURL('image/jpeg', 0.68);
         }
 
         resolve(dataUrl);
