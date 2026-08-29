@@ -139,6 +139,15 @@ export default function App() {
     return 0;
   };
 
+  const getItemSortScore = (item: { updatedAt?: any; createdAt?: any }): number => {
+    if (!item) return 0;
+    const updated = getTimestampMillis(item.updatedAt);
+    const created = getTimestampMillis(item.createdAt);
+    const maxScore = Math.max(updated, created);
+    // If pending local write (serverTimestamp not yet resolved), fallback to Date.now()
+    return maxScore > 0 ? maxScore : Date.now();
+  };
+
   useEffect(() => {
     // Check saved local admin session
     const savedAdmin = localStorage.getItem('jeil_hana_admin_active');
@@ -149,11 +158,13 @@ export default function App() {
     // Hydrate from IndexedDB if available
     loadFullProductsFromDB().then((cachedProds) => {
       if (cachedProds && cachedProds.length > 0) {
+        cachedProds.sort((a, b) => getItemSortScore(b) - getItemSortScore(a));
         setProducts(cachedProds);
       }
     });
     loadFullStorePhotosFromDB().then((cachedPhotos) => {
       if (cachedPhotos && cachedPhotos.length > 0) {
+        cachedPhotos.sort((a, b) => getItemSortScore(b) - getItemSortScore(a));
         setStorePhotos(cachedPhotos);
       }
     });
@@ -178,12 +189,8 @@ export default function App() {
           ...doc.data()
         })) as Product[];
 
-        // Client-side robust sorting by createdAt
-        prods.sort((a, b) => {
-          const timeA = getTimestampMillis(a.createdAt);
-          const timeB = getTimestampMillis(b.createdAt);
-          return timeB - timeA;
-        });
+        // Client-side robust sorting by updatedAt / createdAt
+        prods.sort((a, b) => getItemSortScore(b) - getItemSortScore(a));
 
         setProducts(prods);
         persistProductsLocally(prods);
@@ -191,6 +198,7 @@ export default function App() {
         // If Firestore is empty, maintain IndexedDB/LocalStorage data without erasing user custom items
         loadFullProductsFromDB().then((cached) => {
           if (cached && cached.length > 0) {
+            cached.sort((a, b) => getItemSortScore(b) - getItemSortScore(a));
             setProducts(cached);
           } else {
             const defaults = getInitialProducts();
@@ -211,11 +219,7 @@ export default function App() {
           ...d.data()
         })) as StorePhoto[];
 
-        photos.sort((a, b) => {
-          const timeA = getTimestampMillis(a.createdAt);
-          const timeB = getTimestampMillis(b.createdAt);
-          return timeB - timeA;
-        });
+        photos.sort((a, b) => getItemSortScore(b) - getItemSortScore(a));
 
         setStorePhotos(photos);
         persistStorePhotosLocally(photos);
@@ -223,6 +227,7 @@ export default function App() {
         // If Firestore is empty, preserve local photos
         loadFullStorePhotosFromDB().then((cached) => {
           if (cached && cached.length > 0) {
+            cached.sort((a, b) => getItemSortScore(b) - getItemSortScore(a));
             setStorePhotos(cached);
           } else {
             const defaults = getInitialStorePhotos();
@@ -467,6 +472,7 @@ export default function App() {
 
       unrecordDeletedProductId(prodId);
 
+      const nowIso = new Date().toISOString();
       const existingProd = products.find(p => p.id === prodId);
       const prodData: Product = {
         id: prodId,
@@ -474,22 +480,28 @@ export default function App() {
         imageUrl: formState.imageUrl,
         category: formState.category,
         description: formState.description.trim(),
-        additionalImages: formState.additionalImages,
-        createdAt: isEditing ? (existingProd?.createdAt || new Date().toISOString()) : new Date().toISOString()
+        additionalImages: formState.additionalImages || [],
+        createdAt: isEditing ? (existingProd?.createdAt || nowIso) : nowIso,
+        updatedAt: nowIso
       };
 
       // 1. Immediately update state and persistent storage
-      let updatedProducts: Product[];
-      if (isEditing) {
-        updatedProducts = products.map(p => p.id === prodId ? prodData : p);
-      } else {
-        updatedProducts = [prodData, ...products.filter(p => p.id !== prodId)];
-      }
+      const otherProducts = products.filter(p => p.id !== prodId);
+      const updatedProducts = [prodData, ...otherProducts];
+      updatedProducts.sort((a, b) => getItemSortScore(b) - getItemSortScore(a));
 
       setProducts(updatedProducts);
+      if (selectedProduct && selectedProduct.id === prodId) {
+        setSelectedProduct(prodData);
+      }
+      // Ensure the category tab shows the newly updated product
+      if (activeTab !== 'all' && activeTab !== formState.category) {
+        setActiveTab(formState.category);
+      }
+
       await persistProductsLocally(updatedProducts);
 
-      // 2. Sync to Firestore
+      // 2. Sync to Firestore in real-time
       try {
         await setDoc(doc(db, 'products', prodId), {
           name: formState.name.trim(),
@@ -505,12 +517,17 @@ export default function App() {
       }
 
       if (isEditing) {
-        showToast('상품 정보가 성공적으로 수정 및 저장되었습니다.', 'success');
+        showToast('상품 정보가 즉시 수정 및 반영되었습니다.', 'success');
         setIsEditing(null);
       } else {
-        showToast('새 상품이 성공적으로 등록 및 저장되었습니다.', 'success');
+        showToast('새 상품이 즉시 등록 및 반영되었습니다.', 'success');
       }
-      setFormState({ name: '', imageUrl: '', category: 'rental', description: '', additionalImages: [] });
+      setFormState({ name: '', imageUrl: '', category: formState.category, description: '', additionalImages: [] });
+
+      // Smooth scroll to catalog section to verify
+      setTimeout(() => {
+        document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
     } catch (error: any) {
       console.error('Save product error:', error);
       showToast('상품 저장 중 오류가 발생했습니다: ' + (error.message || '다시 시도해주세요.'), 'error');

@@ -8,6 +8,7 @@ export type Product = {
   description?: string;
   additionalImages?: string[];
   createdAt?: any;
+  updatedAt?: any;
 };
 
 export type StorePhoto = {
@@ -16,6 +17,7 @@ export type StorePhoto = {
   title: string;
   description?: string;
   createdAt?: any;
+  updatedAt?: any;
 };
 
 export const DEFAULT_STORE_PHOTOS: StorePhoto[] = [
