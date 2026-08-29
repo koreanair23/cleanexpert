@@ -573,250 +573,42 @@ export default function App() {
 
       <main className="pt-20">
         {/* 메인 배너 */}
-        <section className="relative min-h-[640px] lg:min-h-[700px] flex items-center overflow-hidden bg-[#000F1D] py-12 lg:py-16">
-          <div className="absolute inset-0 z-0 pointer-events-none">
-            <div className="absolute inset-0 bg-gradient-to-r from-[#000F1D] via-[#000F1D]/80 to-[#000F1D]/60 z-10" />
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(194,155,44,0.18),rgba(255,255,255,0))]" />
+        <section className="relative h-[70vh] min-h-[500px] flex items-center overflow-hidden bg-[#000F1D]">
+          <div className="absolute inset-0 z-0">
+            <div className="absolute inset-0 bg-gradient-to-r from-[#000F1D] via-[#000F1D]/60 to-transparent z-10" />
             <img 
               src="https://images.unsplash.com/photo-1516549655169-df83a0774514?auto=format&fit=crop&q=80&w=2000" 
               alt="의료기기 매장" 
-              className="w-full h-full object-cover opacity-35 scale-105"
+              className="w-full h-full object-cover opacity-60 scale-105"
             />
           </div>
 
           <div className="relative z-20 max-w-7xl mx-auto px-4 w-full">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
-              {/* 왼쪽: 메인 타이틀 및 소개 */}
-              <motion.div 
-                initial={{ opacity: 0, x: -30 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.8 }}
-                className="lg:col-span-7 xl:col-span-7"
-              >
-                <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-[#C29B2C]/20 text-[#D4AF37] border border-[#C29B2C]/30 rounded-full text-sm font-semibold mb-6 tracking-normal">
-                  <ShieldCheck size={16} /> 김포 어르신의 건강한 내일
-                </span>
-                <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl text-white font-extrabold leading-[1.2] mb-6 tracking-tight">
-                  김포 제일하나의료기가 <br />
-                  <span className="text-[#D4AF37] font-black not-italic inline-block mt-1">함께합니다.</span>
-                </h1>
-                <p className="text-slate-200 text-base sm:text-lg md:text-xl mb-8 leading-relaxed font-normal drop-shadow-sm">
-                  당신의 건강을 지켜드리는 김포 제일하나의료기입니다.<br />
-                  노인 장기 요양 보험 등급을 받으신 어르신들을 위해<br />
-                  다양한 복지용구를 전문적으로 취급하고 있습니다.
-                </p>
-                
-                <div className="flex flex-col sm:flex-row gap-3.5 mb-8">
-                  <a href="#catalog" className="bg-[#C29B2C] text-[#000F1D] px-7 py-3.5 rounded-xl font-black text-base md:text-lg flex items-center justify-center gap-2 hover:bg-[#D4AF37] transition-all shadow-xl shadow-[#C29B2C]/30 hover:-translate-y-0.5 active:scale-95">
-                    복지용구 물품 구경하기 <ChevronRight size={18} />
-                  </a>
-                  <a href="tel:031-989-7295" className="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-6 py-3.5 rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all active:scale-95">
-                    <Phone size={18} className="text-[#D4AF37]" /> 전화 상담 (031-989-7295)
-                  </a>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 sm:gap-4 pt-6 border-t border-white/10 text-xs sm:text-sm text-slate-300 font-medium">
-                  <div className="flex items-center gap-1.5 sm:gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[#D4AF37] shrink-0" />
-                    <span className="truncate">국가지원 85~100%</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 sm:gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[#D4AF37] shrink-0" />
-                    <span className="truncate">소독/정비 완료 대여</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 sm:gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[#D4AF37] shrink-0" />
-                    <span className="truncate">매장 앞 무료 주차</span>
-                  </div>
-                </div>
-              </motion.div>
-
-              {/* 오른쪽: 매장 실물 사진 갤러리 및 관리자 업로드 영역 */}
-              <motion.div
-                initial={{ opacity: 0, x: 30 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.8, delay: 0.1 }}
-                className="lg:col-span-5 xl:col-span-5"
-              >
-                <div className="bg-[#000F1D]/85 backdrop-blur-xl border border-[#C29B2C]/30 rounded-3xl p-4 sm:p-6 shadow-2xl relative overflow-hidden">
-                  <div className="flex items-center justify-between gap-2 pb-3.5 mb-3.5 border-b border-white/10">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-9 h-9 rounded-xl bg-[#C29B2C]/20 border border-[#C29B2C]/30 flex items-center justify-center text-[#D4AF37] shrink-0 shadow-inner">
-                        <Camera size={18} />
-                      </div>
-                      <div>
-                        <h3 className="text-white font-extrabold text-base flex items-center gap-2">
-                          매장 실물 사진
-                          <span className="text-[10px] font-black tracking-wider bg-[#C29B2C] text-[#000F1D] px-2 py-0.5 rounded-full">
-                            실물 공개
-                          </span>
-                        </h3>
-                        <p className="text-slate-400 text-xs font-medium">제일하나의료기 매장 전경 및 전시관</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-300 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10">
-                        {storePhotos.length > 0 ? `${activePhotoIdx + 1} / ${storePhotos.length}` : '0'}
-                      </span>
-
-                      {/* 관리자 모드인 경우 사진 올리기/관리 버튼 노출 */}
-                      {isAdmin ? (
-                        <button
-                          type="button"
-                          onClick={() => setShowStorePhotoAdminModal(true)}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-[#C29B2C] hover:bg-[#D4AF37] text-[#000F1D] rounded-xl text-xs font-black transition-all shadow-md active:scale-95"
-                          title="매장 사진 올리기 및 관리"
-                        >
-                          <Plus size={14} /> 사진 올리기
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  {/* 활성 사진 뷰어 */}
-                  {storePhotos.length > 0 ? (
-                    <div className="space-y-3">
-                      <div className="relative aspect-[16/10] rounded-2xl overflow-hidden bg-slate-900 border border-white/10 group shadow-lg">
-                        <img 
-                          src={storePhotos[activePhotoIdx]?.imageUrl} 
-                          alt={storePhotos[activePhotoIdx]?.title || '매장 사진'} 
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 cursor-pointer"
-                          onClick={() => setSelectedStorePhotoModal(storePhotos[activePhotoIdx])}
-                        />
-
-                        {/* 그라데이션 오버레이 */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-[#000F1D] via-transparent to-black/20 pointer-events-none" />
-
-                        {/* 확대 보기 버튼 */}
-                        <button
-                          type="button"
-                          onClick={() => setSelectedStorePhotoModal(storePhotos[activePhotoIdx])}
-                          className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black/90 text-white rounded-xl backdrop-blur-sm transition-all text-xs flex items-center gap-1 opacity-90 group-hover:opacity-100 shadow-md"
-                          title="사진 크게 보기"
-                        >
-                          <Maximize2 size={14} />
-                        </button>
-
-                        {/* 관리자 삭제 버튼 */}
-                        {isAdmin && storePhotos[activePhotoIdx] && (
-                          <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10">
-                            <button
-                              type="button"
-                              disabled={deletingStorePhotoId === storePhotos[activePhotoIdx].id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteStorePhoto(storePhotos[activePhotoIdx].id, storePhotos[activePhotoIdx].title);
-                              }}
-                              className="px-2.5 py-1.5 bg-red-600/90 hover:bg-red-600 text-white rounded-xl backdrop-blur-sm transition-all text-xs font-bold flex items-center gap-1 shadow-lg active:scale-95 disabled:opacity-50"
-                              title="이 매장 사진 삭제"
-                            >
-                              <Trash2 size={13} />
-                              <span>삭제</span>
-                            </button>
-                          </div>
-                        )}
-
-                        {/* 좌우 이동 화살표 */}
-                        {storePhotos.length > 1 && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActivePhotoIdx(prev => (prev === 0 ? storePhotos.length - 1 : prev - 1));
-                              }}
-                              className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/90 text-white transition-all backdrop-blur-sm active:scale-90"
-                              title="이전 사진"
-                            >
-                              <ChevronLeft size={18} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActivePhotoIdx(prev => (prev === storePhotos.length - 1 ? 0 : prev + 1));
-                              }}
-                              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/90 text-white transition-all backdrop-blur-sm active:scale-90"
-                              title="다음 사진"
-                            >
-                              <ChevronRight size={18} />
-                            </button>
-                          </>
-                        )}
-
-                        {/* 하단 캡션 바 */}
-                        <div className="absolute bottom-3 left-3 right-3 text-white pointer-events-none">
-                          <div className="flex items-center gap-2 mb-0.5">
-                            <span className="px-2 py-0.5 rounded-md bg-[#C29B2C] text-[#000F1D] text-[10px] font-black shrink-0">
-                              김포 매장
-                            </span>
-                            <p className="font-extrabold text-sm sm:text-base truncate drop-shadow-md">
-                              {storePhotos[activePhotoIdx]?.title}
-                            </p>
-                          </div>
-                          {storePhotos[activePhotoIdx]?.description && (
-                            <p className="text-slate-300 text-xs truncate drop-shadow">
-                              {storePhotos[activePhotoIdx]?.description}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* 썸네일 스트립 */}
-                      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none pt-1">
-                        {storePhotos.map((photo, idx) => (
-                          <button
-                            key={photo.id || idx}
-                            type="button"
-                            onClick={() => setActivePhotoIdx(idx)}
-                            className={`relative w-16 h-12 rounded-xl overflow-hidden shrink-0 border-2 transition-all ${
-                              activePhotoIdx === idx
-                                ? 'border-[#D4AF37] scale-105 shadow-md shadow-[#C29B2C]/40 ring-2 ring-[#C29B2C]/40'
-                                : 'border-transparent opacity-60 hover:opacity-100'
-                            }`}
-                          >
-                            <img 
-                              src={photo.imageUrl} 
-                              alt={photo.title} 
-                              referrerPolicy="no-referrer"
-                              className="w-full h-full object-cover" 
-                            />
-                          </button>
-                        ))}
-
-                        {isAdmin && (
-                          <button
-                            type="button"
-                            onClick={() => setShowStorePhotoAdminModal(true)}
-                            className="w-16 h-12 rounded-xl border-2 border-dashed border-[#C29B2C]/60 hover:border-[#C29B2C] bg-[#C29B2C]/10 text-[#D4AF37] flex flex-col items-center justify-center text-[10px] font-black shrink-0 transition-all hover:scale-105 active:scale-95"
-                            title="새 매장 사진 등록"
-                          >
-                            <Plus size={14} />
-                            <span>사진 추가</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="py-12 text-center text-slate-400 bg-white/5 rounded-2xl border border-dashed border-white/10">
-                      <Camera size={28} className="mx-auto mb-2 text-slate-500" />
-                      <p className="text-sm font-bold">등록된 매장 사진이 없습니다.</p>
-                      {isAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => setShowStorePhotoAdminModal(true)}
-                          className="mt-3 px-4 py-2 bg-[#C29B2C] text-[#000F1D] font-black text-xs rounded-xl inline-flex items-center gap-1 hover:bg-[#D4AF37]"
-                        >
-                          <Plus size={14} /> 첫 매장 사진 올리기
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            </div>
+            <motion.div 
+              initial={{ opacity: 0, x: -30 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.8 }}
+              className="max-w-2xl"
+            >
+              <span className="inline-block px-4 py-1.5 bg-[#C29B2C]/20 text-[#D4AF37] border border-[#C29B2C]/30 rounded-full text-sm font-semibold mb-6 tracking-normal">
+                김포 어르신의 건강한 내일
+              </span>
+              <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl text-white font-extrabold leading-[1.2] mb-6 tracking-tight">
+                김포 제일하나의료기가 <br />
+                <span className="text-[#D4AF37] font-black not-italic inline-block mt-1">함께합니다.</span>
+              </h1>
+              <p className="text-slate-100 text-lg md:text-xl mb-10 leading-relaxed font-normal drop-shadow-sm">
+                당신의 건강을 지켜드리는 김포 제일하나의료기입니다.<br />
+                노인 장기 요양 보험 등급을 받으신 어르신들을 위해<br />
+                다양한 복지용구를 전문적으로 취급하고 있습니다.
+              </p>
+              
+              <div className="flex flex-col sm:flex-row gap-4">
+                <a href="#catalog" className="bg-[#C29B2C] text-[#000F1D] px-8 py-4 rounded-xl font-black text-lg flex items-center justify-center gap-2 hover:bg-[#D4AF37] transition-all shadow-xl shadow-[#C29B2C]/30 hover:-translate-y-1">
+                  복지용구 물품 구경하기 <ChevronRight size={20} />
+                </a>
+              </div>
+            </motion.div>
           </div>
         </section>
 
