@@ -10,6 +10,35 @@ export type Product = {
   createdAt?: any;
 };
 
+export type StorePhoto = {
+  id: string;
+  imageUrl: string;
+  title: string;
+  description?: string;
+  createdAt?: any;
+};
+
+export const DEFAULT_STORE_PHOTOS: StorePhoto[] = [
+  {
+    id: 'store-photo-1',
+    imageUrl: 'https://images.unsplash.com/photo-1516549655169-df83a0774514?auto=format&fit=crop&q=80&w=1200',
+    title: '매장 전경 및 안내 데스크',
+    description: '김포시 통진읍에 위치한 쾌적하고 편리한 복지용구 전문 매장입니다.'
+  },
+  {
+    id: 'store-photo-2',
+    imageUrl: 'https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&q=80&w=1200',
+    title: '복지용구 & 전동침대 쇼룸',
+    description: '전동침대, 휠체어, 목욕의자 등을 직접 눈으로 보고 체험하실 수 있습니다.'
+  },
+  {
+    id: 'store-photo-3',
+    imageUrl: 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&q=80&w=1200',
+    title: '1:1 맞춤 친절 상담 공간',
+    description: '노인장기요양보험 혜택 및 본인부담금 감면 절차를 상세히 안내해 드립니다.'
+  }
+];
+
 export const INITIAL_PRODUCTS: Product[] = [
   { id: '1', name: '전동 침대 (3모터)', imageUrl: 'https://picsum.photos/seed/bed/400/300', category: 'rental', description: '국민건강보험공단 급여 대여 품목으로 리모컨으로 상하체 각도 및 높낮이를 손쉽게 조절할 수 있는 전동 침대입니다.' },
   { id: '2', name: '수동 휠체어 (알루미늄형)', imageUrl: 'https://picsum.photos/seed/wheelchair/400/300', category: 'rental', description: '어르신의 이동 편의를 돕는 가볍고 견고한 접이식 수동 휠체어로 소독 및 정비가 완료된 대여 품목입니다.' },

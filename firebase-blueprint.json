@@ -13,12 +13,27 @@
         "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
       },
       "required": ["name", "imageUrl", "category", "createdAt"]
+    },
+    "StorePhoto": {
+      "title": "StorePhoto",
+      "description": "Store interior/exterior photos uploaded by store admin",
+      "type": "object",
+      "properties": {
+        "imageUrl": { "type": "string", "description": "URL or base64 of store photo" },
+        "title": { "type": "string", "description": "Title or description of the photo" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Upload timestamp" }
+      },
+      "required": ["imageUrl", "title"]
     }
   },
   "firestore": {
     "products": {
       "schema": "Product",
       "description": "Collection of medical equipment products"
+    },
+    "store_photos": {
+      "schema": "StorePhoto",
+      "description": "Collection of store and facility showcase photos"
     }
   }
 }

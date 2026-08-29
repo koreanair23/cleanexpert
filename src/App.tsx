@@ -7,21 +7,24 @@ import {
   Trash2, 
   LogIn, 
   LogOut, 
-  ChevronRight,
-  Package,
-  ShoppingBag,
-  Heart,
-  X,
-  Edit2,
-  Image as ImageIcon,
-  ExternalLink,
+  ChevronRight, 
   ChevronLeft,
-  KeyRound,
-  ShieldCheck,
-  RotateCcw
+  Package, 
+  ShoppingBag, 
+  Heart, 
+  X, 
+  Edit2, 
+  Image as ImageIcon, 
+  ExternalLink, 
+  KeyRound, 
+  ShieldCheck, 
+  RotateCcw,
+  Camera,
+  UploadCloud,
+  Maximize2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CATEGORIES, Product, INITIAL_PRODUCTS } from './constants';
+import { CATEGORIES, Product, INITIAL_PRODUCTS, StorePhoto, DEFAULT_STORE_PHOTOS } from './constants';
 import { 
   auth, 
   db, 
@@ -55,6 +58,21 @@ export default function App() {
   const [showEmergencyPassword, setShowEmergencyPassword] = useState(false);
   const [emergencyPasswordInput, setEmergencyPasswordInput] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'rental' | 'sale' | 'premium'>('all');
+  
+  // 매장 사진 상태 관리
+  const [storePhotos, setStorePhotos] = useState<StorePhoto[]>(DEFAULT_STORE_PHOTOS);
+  const [activePhotoIdx, setActivePhotoIdx] = useState(0);
+  const [selectedStorePhotoModal, setSelectedStorePhotoModal] = useState<StorePhoto | null>(null);
+  const [showStorePhotoAdminModal, setShowStorePhotoAdminModal] = useState(false);
+  const [storePhotoForm, setStorePhotoForm] = useState({
+    title: '',
+    imageUrl: '',
+    description: ''
+  });
+  const [isUploadingStorePhoto, setIsUploadingStorePhoto] = useState(false);
+  const [deletingStorePhotoId, setDeletingStorePhotoId] = useState<string | null>(null);
+  const storePhotoFileInputRef = useRef<HTMLInputElement>(null);
+
   const [formState, setFormState] = useState({ 
     name: '', 
     imageUrl: '', 
@@ -86,6 +104,7 @@ export default function App() {
       setLoading(false);
     });
 
+    // 상품 목록 실시간 리스너
     const productsCollection = collection(db, 'products');
     const unsubscribeFirestore = onSnapshot(productsCollection, (snapshot) => {
       if (snapshot.empty) {
@@ -111,9 +130,34 @@ export default function App() {
       setProducts(INITIAL_PRODUCTS);
     });
 
+    // 매장 사진 실시간 리스너
+    const storePhotosCollection = collection(db, 'store_photos');
+    const unsubscribeStorePhotos = onSnapshot(storePhotosCollection, (snapshot) => {
+      if (snapshot.empty) {
+        setStorePhotos(DEFAULT_STORE_PHOTOS);
+      } else {
+        const photos = snapshot.docs.map(d => ({
+          id: d.id,
+          ...d.data()
+        })) as StorePhoto[];
+
+        photos.sort((a, b) => {
+          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0);
+          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0);
+          return timeB - timeA;
+        });
+
+        setStorePhotos(photos);
+      }
+    }, (err) => {
+      console.error('Store photos listener error:', err);
+      setStorePhotos(DEFAULT_STORE_PHOTOS);
+    });
+
     return () => {
       unsubscribeAuth();
       unsubscribeFirestore();
+      unsubscribeStorePhotos();
     };
   }, []);
 
@@ -261,6 +305,95 @@ export default function App() {
       if (compressed) {
         setFormState(prev => ({ ...prev, imageUrl: compressed }));
       }
+    }
+  };
+
+  // 매장 사진 파일 선택 및 압축 처리
+  const handleStorePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    const compressed = await compressImageFile(file, 1400, 0.85);
+    if (compressed) {
+      const defaultName = file.name.replace(/\.[^/.]+$/, '').slice(0, 25) || '매장 실물 사진';
+      setStorePhotoForm(prev => ({
+        ...prev,
+        imageUrl: compressed,
+        title: prev.title || defaultName
+      }));
+    }
+  };
+
+  // 매장 사진 신규 등록 (관리자 전용)
+  const handleAddStorePhoto = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin) {
+      alert('매장 사진 관리는 관리자 로그인 후 가능합니다.');
+      setShowLogin(true);
+      return;
+    }
+
+    if (!storePhotoForm.imageUrl) {
+      alert('매장 사진을 업로드하거나 이미지 URL을 입력해주세요.');
+      return;
+    }
+
+    try {
+      setIsUploadingStorePhoto(true);
+      const photoTitle = storePhotoForm.title.trim() || '김포 제일하나의료기 매장 사진';
+      const photoDesc = storePhotoForm.description.trim() || '김포 제일하나의료기 매장 실물 모습입니다.';
+
+      await addDoc(collection(db, 'store_photos'), {
+        imageUrl: storePhotoForm.imageUrl,
+        title: photoTitle,
+        description: photoDesc,
+        createdAt: serverTimestamp()
+      });
+
+      alert('새 매장 사진이 등록되었습니다.');
+      setStorePhotoForm({ title: '', imageUrl: '', description: '' });
+      setShowStorePhotoAdminModal(false);
+    } catch (err: any) {
+      console.error('Add store photo error:', err);
+      // Fallback local update if offline
+      const newLocalPhoto: StorePhoto = {
+        id: 'local-' + Date.now(),
+        imageUrl: storePhotoForm.imageUrl,
+        title: storePhotoForm.title.trim() || '김포 제일하나의료기 매장 사진',
+        description: storePhotoForm.description.trim() || '김포 제일하나의료기 매장 실물 모습입니다.'
+      };
+      setStorePhotos(prev => [newLocalPhoto, ...prev]);
+      alert('매장 사진이 등록되었습니다.');
+      setStorePhotoForm({ title: '', imageUrl: '', description: '' });
+      setShowStorePhotoAdminModal(false);
+    } finally {
+      setIsUploadingStorePhoto(false);
+    }
+  };
+
+  // 매장 사진 삭제 (관리자 전용)
+  const handleDeleteStorePhoto = async (id: string, title: string) => {
+    if (!isAdmin) {
+      alert('관리자 로그인 후 삭제할 수 있습니다.');
+      return;
+    }
+
+    if (!window.confirm(`'${title}' 매장 사진을 삭제하시겠습니까?`)) {
+      return;
+    }
+
+    try {
+      setDeletingStorePhotoId(id);
+      await deleteDoc(doc(db, 'store_photos', id)).catch(() => {});
+      setStorePhotos(prev => prev.filter(p => p.id !== id));
+      setActivePhotoIdx(prev => Math.max(0, Math.min(prev, storePhotos.length - 2)));
+      alert('매장 사진이 삭제되었습니다.');
+    } catch (err: any) {
+      console.error('Delete photo error:', err);
+      setStorePhotos(prev => prev.filter(p => p.id !== id));
+      alert('매장 사진이 삭제되었습니다.');
+    } finally {
+      setDeletingStorePhotoId(null);
     }
   };
 
@@ -440,42 +573,250 @@ export default function App() {
 
       <main className="pt-20">
         {/* 메인 배너 */}
-        <section className="relative h-[70vh] min-h-[500px] flex items-center overflow-hidden bg-[#000F1D]">
-          <div className="absolute inset-0 z-0">
-            <div className="absolute inset-0 bg-gradient-to-r from-[#000F1D] via-[#000F1D]/60 to-transparent z-10" />
+        <section className="relative min-h-[640px] lg:min-h-[700px] flex items-center overflow-hidden bg-[#000F1D] py-12 lg:py-16">
+          <div className="absolute inset-0 z-0 pointer-events-none">
+            <div className="absolute inset-0 bg-gradient-to-r from-[#000F1D] via-[#000F1D]/80 to-[#000F1D]/60 z-10" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(194,155,44,0.18),rgba(255,255,255,0))]" />
             <img 
               src="https://images.unsplash.com/photo-1516549655169-df83a0774514?auto=format&fit=crop&q=80&w=2000" 
               alt="의료기기 매장" 
-              className="w-full h-full object-cover opacity-60 scale-105"
+              className="w-full h-full object-cover opacity-35 scale-105"
             />
           </div>
 
-          <div className="relative z-20 max-w-7xl mx-auto px-4">
-            <motion.div 
-              initial={{ opacity: 0, x: -30 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.8 }}
-              className="max-w-2xl"
-            >
-              <span className="inline-block px-4 py-1.5 bg-[#C29B2C]/20 text-[#D4AF37] border border-[#C29B2C]/30 rounded-full text-sm font-semibold mb-6 tracking-normal">
-                김포 어르신의 건강한 내일
-              </span>
-              <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl text-white font-extrabold leading-[1.2] mb-6 tracking-tight">
-                김포 하나의료기가 <br />
-                <span className="text-[#D4AF37] font-black not-italic inline-block mt-1">함께합니다.</span>
-              </h1>
-              <p className="text-slate-100 text-lg md:text-xl mb-10 leading-relaxed font-normal drop-shadow-sm">
-                당신의 건강을 지켜드리는 김포 제일하나의료기입니다.<br />
-                노인 장기 요양 보험 등급을 받으신 어르신들을 위해<br />
-                다양한 복지용구를 전문적으로 취급하고 있습니다.
-              </p>
-              
-              <div className="flex flex-col sm:flex-row gap-4">
-                <a href="#catalog" className="bg-[#C29B2C] text-[#000F1D] px-8 py-4 rounded-xl font-black text-lg flex items-center justify-center gap-2 hover:bg-[#D4AF37] transition-all shadow-xl shadow-[#C29B2C]/30 hover:-translate-y-1">
-                  복지용구 물품 구경하기 <ChevronRight size={20} />
-                </a>
-              </div>
-            </motion.div>
+          <div className="relative z-20 max-w-7xl mx-auto px-4 w-full">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
+              {/* 왼쪽: 메인 타이틀 및 소개 */}
+              <motion.div 
+                initial={{ opacity: 0, x: -30 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.8 }}
+                className="lg:col-span-7 xl:col-span-7"
+              >
+                <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-[#C29B2C]/20 text-[#D4AF37] border border-[#C29B2C]/30 rounded-full text-sm font-semibold mb-6 tracking-normal">
+                  <ShieldCheck size={16} /> 김포 어르신의 건강한 내일
+                </span>
+                <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl text-white font-extrabold leading-[1.2] mb-6 tracking-tight">
+                  김포 제일하나의료기가 <br />
+                  <span className="text-[#D4AF37] font-black not-italic inline-block mt-1">함께합니다.</span>
+                </h1>
+                <p className="text-slate-200 text-base sm:text-lg md:text-xl mb-8 leading-relaxed font-normal drop-shadow-sm">
+                  당신의 건강을 지켜드리는 김포 제일하나의료기입니다.<br />
+                  노인 장기 요양 보험 등급을 받으신 어르신들을 위해<br />
+                  다양한 복지용구를 전문적으로 취급하고 있습니다.
+                </p>
+                
+                <div className="flex flex-col sm:flex-row gap-3.5 mb-8">
+                  <a href="#catalog" className="bg-[#C29B2C] text-[#000F1D] px-7 py-3.5 rounded-xl font-black text-base md:text-lg flex items-center justify-center gap-2 hover:bg-[#D4AF37] transition-all shadow-xl shadow-[#C29B2C]/30 hover:-translate-y-0.5 active:scale-95">
+                    복지용구 물품 구경하기 <ChevronRight size={18} />
+                  </a>
+                  <a href="tel:031-989-7295" className="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-6 py-3.5 rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all active:scale-95">
+                    <Phone size={18} className="text-[#D4AF37]" /> 전화 상담 (031-989-7295)
+                  </a>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 sm:gap-4 pt-6 border-t border-white/10 text-xs sm:text-sm text-slate-300 font-medium">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#D4AF37] shrink-0" />
+                    <span className="truncate">국가지원 85~100%</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#D4AF37] shrink-0" />
+                    <span className="truncate">소독/정비 완료 대여</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#D4AF37] shrink-0" />
+                    <span className="truncate">매장 앞 무료 주차</span>
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* 오른쪽: 매장 실물 사진 갤러리 및 관리자 업로드 영역 */}
+              <motion.div
+                initial={{ opacity: 0, x: 30 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.8, delay: 0.1 }}
+                className="lg:col-span-5 xl:col-span-5"
+              >
+                <div className="bg-[#000F1D]/85 backdrop-blur-xl border border-[#C29B2C]/30 rounded-3xl p-4 sm:p-6 shadow-2xl relative overflow-hidden">
+                  <div className="flex items-center justify-between gap-2 pb-3.5 mb-3.5 border-b border-white/10">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-[#C29B2C]/20 border border-[#C29B2C]/30 flex items-center justify-center text-[#D4AF37] shrink-0 shadow-inner">
+                        <Camera size={18} />
+                      </div>
+                      <div>
+                        <h3 className="text-white font-extrabold text-base flex items-center gap-2">
+                          매장 실물 사진
+                          <span className="text-[10px] font-black tracking-wider bg-[#C29B2C] text-[#000F1D] px-2 py-0.5 rounded-full">
+                            실물 공개
+                          </span>
+                        </h3>
+                        <p className="text-slate-400 text-xs font-medium">제일하나의료기 매장 전경 및 전시관</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-300 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10">
+                        {storePhotos.length > 0 ? `${activePhotoIdx + 1} / ${storePhotos.length}` : '0'}
+                      </span>
+
+                      {/* 관리자 모드인 경우 사진 올리기/관리 버튼 노출 */}
+                      {isAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowStorePhotoAdminModal(true)}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-[#C29B2C] hover:bg-[#D4AF37] text-[#000F1D] rounded-xl text-xs font-black transition-all shadow-md active:scale-95"
+                          title="매장 사진 올리기 및 관리"
+                        >
+                          <Plus size={14} /> 사진 올리기
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* 활성 사진 뷰어 */}
+                  {storePhotos.length > 0 ? (
+                    <div className="space-y-3">
+                      <div className="relative aspect-[16/10] rounded-2xl overflow-hidden bg-slate-900 border border-white/10 group shadow-lg">
+                        <img 
+                          src={storePhotos[activePhotoIdx]?.imageUrl} 
+                          alt={storePhotos[activePhotoIdx]?.title || '매장 사진'} 
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 cursor-pointer"
+                          onClick={() => setSelectedStorePhotoModal(storePhotos[activePhotoIdx])}
+                        />
+
+                        {/* 그라데이션 오버레이 */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-[#000F1D] via-transparent to-black/20 pointer-events-none" />
+
+                        {/* 확대 보기 버튼 */}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedStorePhotoModal(storePhotos[activePhotoIdx])}
+                          className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black/90 text-white rounded-xl backdrop-blur-sm transition-all text-xs flex items-center gap-1 opacity-90 group-hover:opacity-100 shadow-md"
+                          title="사진 크게 보기"
+                        >
+                          <Maximize2 size={14} />
+                        </button>
+
+                        {/* 관리자 삭제 버튼 */}
+                        {isAdmin && storePhotos[activePhotoIdx] && (
+                          <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10">
+                            <button
+                              type="button"
+                              disabled={deletingStorePhotoId === storePhotos[activePhotoIdx].id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteStorePhoto(storePhotos[activePhotoIdx].id, storePhotos[activePhotoIdx].title);
+                              }}
+                              className="px-2.5 py-1.5 bg-red-600/90 hover:bg-red-600 text-white rounded-xl backdrop-blur-sm transition-all text-xs font-bold flex items-center gap-1 shadow-lg active:scale-95 disabled:opacity-50"
+                              title="이 매장 사진 삭제"
+                            >
+                              <Trash2 size={13} />
+                              <span>삭제</span>
+                            </button>
+                          </div>
+                        )}
+
+                        {/* 좌우 이동 화살표 */}
+                        {storePhotos.length > 1 && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActivePhotoIdx(prev => (prev === 0 ? storePhotos.length - 1 : prev - 1));
+                              }}
+                              className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/90 text-white transition-all backdrop-blur-sm active:scale-90"
+                              title="이전 사진"
+                            >
+                              <ChevronLeft size={18} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActivePhotoIdx(prev => (prev === storePhotos.length - 1 ? 0 : prev + 1));
+                              }}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/90 text-white transition-all backdrop-blur-sm active:scale-90"
+                              title="다음 사진"
+                            >
+                              <ChevronRight size={18} />
+                            </button>
+                          </>
+                        )}
+
+                        {/* 하단 캡션 바 */}
+                        <div className="absolute bottom-3 left-3 right-3 text-white pointer-events-none">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="px-2 py-0.5 rounded-md bg-[#C29B2C] text-[#000F1D] text-[10px] font-black shrink-0">
+                              김포 매장
+                            </span>
+                            <p className="font-extrabold text-sm sm:text-base truncate drop-shadow-md">
+                              {storePhotos[activePhotoIdx]?.title}
+                            </p>
+                          </div>
+                          {storePhotos[activePhotoIdx]?.description && (
+                            <p className="text-slate-300 text-xs truncate drop-shadow">
+                              {storePhotos[activePhotoIdx]?.description}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 썸네일 스트립 */}
+                      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none pt-1">
+                        {storePhotos.map((photo, idx) => (
+                          <button
+                            key={photo.id || idx}
+                            type="button"
+                            onClick={() => setActivePhotoIdx(idx)}
+                            className={`relative w-16 h-12 rounded-xl overflow-hidden shrink-0 border-2 transition-all ${
+                              activePhotoIdx === idx
+                                ? 'border-[#D4AF37] scale-105 shadow-md shadow-[#C29B2C]/40 ring-2 ring-[#C29B2C]/40'
+                                : 'border-transparent opacity-60 hover:opacity-100'
+                            }`}
+                          >
+                            <img 
+                              src={photo.imageUrl} 
+                              alt={photo.title} 
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover" 
+                            />
+                          </button>
+                        ))}
+
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setShowStorePhotoAdminModal(true)}
+                            className="w-16 h-12 rounded-xl border-2 border-dashed border-[#C29B2C]/60 hover:border-[#C29B2C] bg-[#C29B2C]/10 text-[#D4AF37] flex flex-col items-center justify-center text-[10px] font-black shrink-0 transition-all hover:scale-105 active:scale-95"
+                            title="새 매장 사진 등록"
+                          >
+                            <Plus size={14} />
+                            <span>사진 추가</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-12 text-center text-slate-400 bg-white/5 rounded-2xl border border-dashed border-white/10">
+                      <Camera size={28} className="mx-auto mb-2 text-slate-500" />
+                      <p className="text-sm font-bold">등록된 매장 사진이 없습니다.</p>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => setShowStorePhotoAdminModal(true)}
+                          className="mt-3 px-4 py-2 bg-[#C29B2C] text-[#000F1D] font-black text-xs rounded-xl inline-flex items-center gap-1 hover:bg-[#D4AF37]"
+                        >
+                          <Plus size={14} /> 첫 매장 사진 올리기
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </div>
           </div>
         </section>
 
@@ -1089,6 +1430,114 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {/* 매장 실물 사진 갤러리 섹션 (오시는 길 하단) */}
+            <div className="mt-20 pt-16 border-t border-slate-100">
+              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
+                <div>
+                  <span className="text-xs font-black text-[#C29B2C] uppercase tracking-widest block mb-1">
+                    Store Gallery
+                  </span>
+                  <h3 className="text-2xl sm:text-3xl font-black text-[#000F1D] tracking-tight flex items-center gap-2.5">
+                    <Camera className="text-[#C29B2C]" size={26} /> 매장 실물 둘러보기
+                  </h3>
+                  <p className="text-slate-500 text-sm font-medium mt-1">
+                    김포 제일하나의료기 매장의 전시관, 상담 공간 및 실제 제품 전시 모습입니다.
+                  </p>
+                </div>
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setShowStorePhotoAdminModal(true)}
+                    className="px-4 py-2.5 bg-[#000F1D] text-[#D4AF37] hover:bg-[#001A33] rounded-2xl text-xs font-black transition-all flex items-center gap-2 shadow-md shrink-0 active:scale-95"
+                  >
+                    <Plus size={15} /> 매장 사진 올리기 / 관리
+                  </button>
+                )}
+              </div>
+
+              {storePhotos.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {storePhotos.map((photo, index) => (
+                    <motion.div
+                      key={photo.id || index}
+                      initial={{ opacity: 0, y: 20 }}
+                      whileInView={{ opacity: 1, y: 0 }}
+                      viewport={{ once: true }}
+                      transition={{ duration: 0.4, delay: index * 0.05 }}
+                      onClick={() => setSelectedStorePhotoModal(photo)}
+                      className="group cursor-pointer bg-white rounded-3xl overflow-hidden border border-slate-200 hover:border-[#C29B2C]/50 hover:shadow-xl transition-all duration-300 flex flex-col"
+                    >
+                      <div className="relative aspect-[16/11] overflow-hidden bg-slate-100">
+                        <img
+                          src={photo.imageUrl}
+                          alt={photo.title}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        />
+                        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <span className="p-3 bg-white/90 text-slate-900 rounded-full shadow-lg scale-90 group-hover:scale-100 transition-transform">
+                            <Maximize2 size={18} />
+                          </span>
+                        </div>
+
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteStorePhoto(photo.id, photo.title);
+                            }}
+                            className="absolute top-3 right-3 p-2 bg-red-600/90 hover:bg-red-600 text-white rounded-xl shadow-md text-xs"
+                            title="사진 삭제"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="p-5 flex-1 flex flex-col justify-between">
+                        <div>
+                          <span className="text-[10px] font-black text-[#C29B2C] uppercase tracking-wider block mb-1">
+                            김포 제일하나의료기
+                          </span>
+                          <h4 className="font-extrabold text-base text-[#000F1D] group-hover:text-[#C29B2C] transition-colors">
+                            {photo.title}
+                          </h4>
+                          {photo.description && (
+                            <p className="text-slate-500 text-xs mt-1.5 line-clamp-2 leading-relaxed font-medium">
+                              {photo.description}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-bold">
+                          <span>매장 방문 시 확인 가능</span>
+                          <span className="text-[#C29B2C] flex items-center gap-0.5 group-hover:translate-x-0.5 transition-transform">
+                            확대보기 <ChevronRight size={13} />
+                          </span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12 bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+                  <Camera size={36} className="mx-auto mb-2 text-slate-400" />
+                  <p className="text-slate-600 font-bold text-sm">등록된 매장 사진이 없습니다.</p>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => setShowStorePhotoAdminModal(true)}
+                      className="mt-4 px-4 py-2 bg-[#000F1D] text-[#D4AF37] text-xs font-bold rounded-xl inline-flex items-center gap-1.5"
+                    >
+                      <Plus size={14} /> 매장 사진 올리기
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </section>
       </main>
@@ -1336,6 +1785,267 @@ export default function App() {
                     </form>
                   )}
                 </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 매장 사진 확대 모달 */}
+      <AnimatePresence>
+        {selectedStorePhotoModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md"
+            onClick={() => setSelectedStorePhotoModal(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="bg-[#000F1D] border border-[#C29B2C]/30 rounded-3xl max-w-4xl w-full overflow-hidden shadow-2xl relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedStorePhotoModal(null)}
+                className="absolute top-4 right-4 z-10 p-2.5 bg-black/60 hover:bg-black/90 text-white rounded-full transition-all"
+              >
+                <X size={24} />
+              </button>
+
+              <div className="relative aspect-[16/10] sm:aspect-[16/9] bg-black">
+                <img
+                  src={selectedStorePhotoModal.imageUrl}
+                  alt={selectedStorePhotoModal.title}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-contain"
+                />
+              </div>
+
+              <div className="p-6 bg-[#000F1D] border-t border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2 py-0.5 rounded-md bg-[#C29B2C] text-[#000F1D] text-xs font-black">
+                      김포 제일하나의료기
+                    </span>
+                    <h3 className="text-xl font-black text-white">{selectedStorePhotoModal.title}</h3>
+                  </div>
+                  {selectedStorePhotoModal.description && (
+                    <p className="text-slate-300 text-sm font-medium">
+                      {selectedStorePhotoModal.description}
+                    </p>
+                  )}
+                </div>
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const id = selectedStorePhotoModal.id;
+                      const title = selectedStorePhotoModal.title;
+                      setSelectedStorePhotoModal(null);
+                      handleDeleteStorePhoto(id, title);
+                    }}
+                    className="px-4 py-2.5 bg-red-600/90 hover:bg-red-600 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all shrink-0"
+                  >
+                    <Trash2 size={14} /> 이 사진 삭제
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 관리자 매장 사진 등록 및 관리 모달 */}
+      <AnimatePresence>
+        {showStorePhotoAdminModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-[#000F1D]/95 backdrop-blur-md"
+            onClick={() => setShowStorePhotoAdminModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="bg-white rounded-[36px] max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* 모달 헤더 */}
+              <div className="p-6 md:p-8 pb-4 border-b border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-[#000F1D] text-[#D4AF37] flex items-center justify-center shadow-lg">
+                    <Camera size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl md:text-2xl font-black text-[#000F1D]">매장 실물 사진 관리</h3>
+                    <p className="text-xs text-slate-500 font-medium">상단 배너에 노출될 매장 실물 사진을 업로드하고 관리합니다.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowStorePhotoAdminModal(false)}
+                  className="p-2 text-slate-400 hover:text-slate-700 transition-colors"
+                >
+                  <X size={26} />
+                </button>
+              </div>
+
+              {/* 모달 본문 */}
+              <div className="p-6 md:p-8 overflow-y-auto space-y-6">
+                {/* 사진 업로드 폼 */}
+                <form onSubmit={handleAddStorePhoto} className="space-y-4 bg-slate-50 p-5 rounded-2xl border border-slate-200">
+                  <h4 className="text-sm font-black text-[#000F1D] flex items-center gap-2">
+                    <Plus size={16} className="text-[#C29B2C]" /> 새 매장 사진 추가
+                  </h4>
+
+                  {/* 사진 선택 / 미리보기 */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-2">사진 이미지 *</label>
+                    <input
+                      ref={storePhotoFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleStorePhotoFileChange}
+                      className="hidden"
+                    />
+
+                    {storePhotoForm.imageUrl ? (
+                      <div className="relative aspect-[16/9] rounded-xl overflow-hidden bg-slate-900 border-2 border-[#C29B2C] group">
+                        <img
+                          src={storePhotoForm.imageUrl}
+                          alt="업로드 미리보기"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => storePhotoFileInputRef.current?.click()}
+                            className="px-3 py-1.5 bg-white text-slate-900 rounded-lg text-xs font-bold shadow hover:bg-slate-100"
+                          >
+                            사진 변경
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setStorePhotoForm(prev => ({ ...prev, imageUrl: '' }))}
+                            className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold shadow hover:bg-red-700"
+                          >
+                            취소
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        onClick={() => storePhotoFileInputRef.current?.click()}
+                        className="border-2 border-dashed border-slate-300 hover:border-[#C29B2C] rounded-2xl p-6 text-center cursor-pointer transition-all bg-white hover:bg-[#C29B2C]/5"
+                      >
+                        <UploadCloud size={32} className="mx-auto mb-2 text-[#C29B2C]" />
+                        <p className="text-xs font-bold text-slate-700">기기에서 매장 사진 선택 (클릭)</p>
+                        <p className="text-[11px] text-slate-400 mt-1">스마트폰 사진, 카메라 앨범에서 직접 선택 가능</p>
+                      </div>
+                    )}
+
+                    {/* 또는 URL 직접 입력 */}
+                    <div className="mt-2">
+                      <input
+                        type="text"
+                        placeholder="또는 이미지 웹 URL 주소 직접 입력"
+                        value={storePhotoForm.imageUrl}
+                        onChange={(e) => setStorePhotoForm(prev => ({ ...prev, imageUrl: e.target.value }))}
+                        className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#C29B2C]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 사진 제목 */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">사진 명칭 / 위치 *</label>
+                    <input
+                      type="text"
+                      placeholder="예: 매장 입구 및 안내 데스크, 복지용구 전시장, 상담실"
+                      value={storePhotoForm.title}
+                      onChange={(e) => setStorePhotoForm(prev => ({ ...prev, title: e.target.value }))}
+                      className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#C29B2C]"
+                    />
+                  </div>
+
+                  {/* 상세 설명 */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">간단 소개 (선택)</label>
+                    <input
+                      type="text"
+                      placeholder="예: 전동침대 및 휠체어를 직접 체험해보실 수 있는 쾌적한 공간입니다."
+                      value={storePhotoForm.description}
+                      onChange={(e) => setStorePhotoForm(prev => ({ ...prev, description: e.target.value }))}
+                      className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#C29B2C]"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isUploadingStorePhoto || !storePhotoForm.imageUrl}
+                    className="w-full py-3 bg-[#000F1D] hover:bg-[#001A33] text-[#D4AF37] font-black text-sm rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
+                  >
+                    <Plus size={16} />
+                    {isUploadingStorePhoto ? '사진 저장 중...' : '매장 사진 등록 완료'}
+                  </button>
+                </form>
+
+                {/* 현재 등록된 사진 목록 */}
+                <div>
+                  <h4 className="text-sm font-black text-[#000F1D] mb-3 flex items-center justify-between">
+                    <span>현재 등록된 매장 사진 ({storePhotos.length}장)</span>
+                  </h4>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-1">
+                    {storePhotos.map((photo, idx) => (
+                      <div
+                        key={photo.id || idx}
+                        className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between gap-3 group"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <img
+                            src={photo.imageUrl}
+                            alt={photo.title}
+                            referrerPolicy="no-referrer"
+                            className="w-14 h-10 rounded-lg object-cover shrink-0 border border-slate-200"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-800 truncate">{photo.title}</p>
+                            <p className="text-[10px] text-slate-400 truncate">{photo.description || '김포 제일하나의료기'}</p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={deletingStorePhotoId === photo.id}
+                          onClick={() => handleDeleteStorePhoto(photo.id, photo.title)}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors shrink-0 disabled:opacity-50"
+                          title="삭제"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 모달 푸터 */}
+              <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowStorePhotoAdminModal(false)}
+                  className="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition-all"
+                >
+                  닫기
+                </button>
               </div>
             </motion.div>
           </motion.div>

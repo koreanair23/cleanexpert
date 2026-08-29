@@ -5,6 +5,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /store_photos/{photoId} {
+      allow read, write: if true;
+    }
+
     match /admins/{adminId} {
       allow read: if request.auth != null && request.auth.uid == adminId;
       allow write: if false;
