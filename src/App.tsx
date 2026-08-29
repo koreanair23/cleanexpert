@@ -51,6 +51,9 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [showEmergencyPassword, setShowEmergencyPassword] = useState(false);
+  const [emergencyPasswordInput, setEmergencyPasswordInput] = useState('');
   const [formState, setFormState] = useState({ 
     name: '', 
     imageUrl: '', 
@@ -62,12 +65,21 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const multiFileInputRef = useRef<HTMLInputElement>(null);
 
+  const ADMIN_PASSWORDS = ['01087857295*', '7295', 'hana7295', '01087857295'];
+
   useEffect(() => {
+    // Check saved local admin session
+    const savedAdmin = localStorage.getItem('jeil_hana_admin_active');
+    if (savedAdmin === 'true') {
+      setIsAdmin(true);
+    }
+
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         setIsAdmin(true);
-      } else {
+        localStorage.setItem('jeil_hana_admin_active', 'true');
+      } else if (savedAdmin !== 'true') {
         setIsAdmin(false);
       }
       setLoading(false);
@@ -105,19 +117,53 @@ export default function App() {
   }, []);
 
   const handleGoogleLogin = async () => {
+    setLoginError(null);
     try {
       setIsLoggingIn(true);
       const loggedInUser = await signInWithGoogle();
       if (loggedInUser) {
         setIsAdmin(true);
+        localStorage.setItem('jeil_hana_admin_active', 'true');
         alert(`Google 계정(${loggedInUser.email || loggedInUser.displayName || '인증 완료'})으로 로그인되었습니다.\n이제 새 상품 등록 및 삭제, 수정이 가능합니다.`);
       }
       setShowLogin(false);
     } catch (error: any) {
       console.error("Login Error:", error);
-      alert('Google 로그인 오류: ' + (error.message || '알 수 없는 오류'));
+      let errorMsg = 'Google 로그인 중 오류가 발생했습니다.';
+      
+      if (error.code === 'auth/unauthorized-domain') {
+        errorMsg = '배포된 도메인이 Firebase 승인 도메인에 등록되지 않았습니다. 하단의 비상 비밀번호로 즉시 로그인하실 수 있습니다.';
+        setShowEmergencyPassword(true);
+      } else if (error.code === 'auth/popup-blocked') {
+        errorMsg = '브라우저 팝업이 차단되었습니다. 주소창의 팝업 차단을 해제하거나 하단의 비상 비밀번호로 로그인해주세요.';
+        setShowEmergencyPassword(true);
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        errorMsg = '로그인 창이 닫혔습니다. 다시 시도해주세요.';
+      } else if (error.code === 'auth/cancelled-popup-request') {
+        errorMsg = '로그인이 이미 진행 중입니다. 잠시 후 다시 시도해주세요.';
+      } else if (error.message) {
+        errorMsg = `로그인 오류: ${error.message}`;
+        setShowEmergencyPassword(true);
+      }
+      
+      setLoginError(errorMsg);
     } finally {
       setIsLoggingIn(false);
+    }
+  };
+
+  const handleEmergencyPasswordLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const entered = emergencyPasswordInput.trim();
+    if (ADMIN_PASSWORDS.includes(entered)) {
+      setIsAdmin(true);
+      localStorage.setItem('jeil_hana_admin_active', 'true');
+      setShowLogin(false);
+      setEmergencyPasswordInput('');
+      setLoginError(null);
+      alert('관리자 인증이 완료되었습니다. 상품 등록, 수정, 삭제가 가능합니다.');
+    } else {
+      alert('비밀번호가 일치하지 않습니다. (기본 비밀번호: 7295)');
     }
   };
 
@@ -127,6 +173,7 @@ export default function App() {
     } finally {
       setUser(null);
       setIsAdmin(false);
+      localStorage.removeItem('jeil_hana_admin_active');
       alert('로그아웃 되었습니다.');
     }
   };
@@ -1136,27 +1183,65 @@ export default function App() {
                 <X size={32} />
               </button>
 
-              <div className="text-center mb-8">
-                <div className="w-16 h-16 bg-[#000F1D] text-[#D4AF37] rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-2xl shadow-navy-900/40">
-                  <KeyRound size={32} />
+              <div className="text-center mb-6">
+                <div className="w-14 h-14 bg-[#000F1D] text-[#D4AF37] rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-xl">
+                  <KeyRound size={26} />
                 </div>
-                <h3 className="text-3xl font-display font-black text-[#000F1D] italic mb-1 tracking-tighter">관리자 로그인</h3>
-                <p className="text-slate-500 font-bold text-sm">Google 계정으로 관리자 인증을 진행합니다</p>
+                <h3 className="text-2xl font-black text-[#000F1D] mb-1 tracking-tight">관리자 로그인</h3>
+                <p className="text-slate-500 font-medium text-xs">Google 계정으로 관리자 인증을 진행합니다</p>
               </div>
+
+              {loginError && (
+                <div className="mb-5 p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 leading-relaxed font-medium">
+                  {loginError}
+                </div>
+              )}
 
               <div className="space-y-4">
                 <button 
                   onClick={handleGoogleLogin}
                   disabled={isLoggingIn}
-                  className="w-full flex items-center justify-center gap-4 bg-white border-2 border-slate-200 py-4.5 rounded-2xl font-black text-slate-900 hover:bg-slate-50 hover:border-[#C29B2C] transition-all shadow-md active:scale-95 px-6 group disabled:opacity-50"
+                  className="w-full flex items-center justify-center gap-3 bg-white border-2 border-slate-200 py-3.5 rounded-2xl font-bold text-slate-800 hover:bg-slate-50 hover:border-[#C29B2C] transition-all shadow-sm active:scale-95 px-5 group disabled:opacity-50"
                 >
-                  <img src="https://www.google.com/favicon.ico" alt="Google" className="w-6 h-6" />
-                  {isLoggingIn ? 'Google 로그인 진행 중...' : 'Google 계정으로 로그인하기'}
+                  <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
+                  {isLoggingIn ? 'Google 로그인 진행 중...' : 'Google 계정으로 로그인'}
                 </button>
                 
-                <p className="text-xs text-slate-500 text-center leading-relaxed font-medium pt-2">
-                  로그인 완료 시 상품 등록, 수정 및 삭제 기능이 즉시 활성화됩니다.
+                <p className="text-[11px] text-slate-400 text-center leading-relaxed">
+                  로그인 완료 시 상품 등록, 수정 및 삭제 권한이 활성화됩니다.
                 </p>
+
+                {/* 비상 백업 로그인 (도메인/팝업 차단 발생 시 사용) */}
+                <div className="pt-3 border-t border-slate-100 text-center">
+                  {!showEmergencyPassword ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowEmergencyPassword(true)}
+                      className="text-[11px] text-slate-400 hover:text-slate-600 underline font-medium"
+                    >
+                      Google 로그인 오류 또는 팝업 차단 시 비밀번호로 인증
+                    </button>
+                  ) : (
+                    <form onSubmit={handleEmergencyPasswordLogin} className="space-y-3 pt-2">
+                      <div className="flex gap-2">
+                        <input
+                          type="password"
+                          placeholder="관리자 비상 비밀번호 입력"
+                          value={emergencyPasswordInput}
+                          onChange={(e) => setEmergencyPasswordInput(e.target.value)}
+                          className="flex-1 px-4 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl font-bold focus:outline-none focus:ring-2 focus:ring-[#C29B2C] text-center"
+                          autoFocus
+                        />
+                        <button
+                          type="submit"
+                          className="px-4 py-2.5 bg-[#000F1D] text-[#D4AF37] text-xs font-bold rounded-xl hover:bg-[#001A33] transition-all"
+                        >
+                          인증
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
               </div>
             </motion.div>
           </motion.div>
