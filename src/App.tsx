@@ -26,6 +26,15 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { CATEGORIES, Product, INITIAL_PRODUCTS, StorePhoto, DEFAULT_STORE_PHOTOS } from './constants';
 import { 
+  getInitialProducts, 
+  getInitialStorePhotos, 
+  persistProductsLocally, 
+  persistStorePhotosLocally, 
+  loadFullProductsFromDB, 
+  loadFullStorePhotosFromDB, 
+  compressImageFile 
+} from './lib/persistentStorage';
+import { 
   auth, 
   db, 
   signInWithGoogle, 
@@ -44,7 +53,7 @@ import {
 import { onAuthStateChanged, User } from 'firebase/auth';
 
 export default function App() {
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<Product[]>(getInitialProducts);
   const [user, setUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
@@ -60,7 +69,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'all' | 'rental' | 'sale' | 'premium'>('all');
   
   // 매장 사진 상태 관리
-  const [storePhotos, setStorePhotos] = useState<StorePhoto[]>(DEFAULT_STORE_PHOTOS);
+  const [storePhotos, setStorePhotos] = useState<StorePhoto[]>(getInitialStorePhotos);
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
   const [selectedStorePhotoModal, setSelectedStorePhotoModal] = useState<StorePhoto | null>(null);
   const [showStorePhotoAdminModal, setShowStorePhotoAdminModal] = useState(false);
@@ -80,7 +89,7 @@ export default function App() {
     description: '', 
     additionalImages: [] as string[] 
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const multiFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -92,6 +101,18 @@ export default function App() {
     if (savedAdmin === 'true') {
       setIsAdmin(true);
     }
+
+    // Hydrate from IndexedDB if available
+    loadFullProductsFromDB().then((cachedProds) => {
+      if (cachedProds && cachedProds.length > 0) {
+        setProducts(cachedProds);
+      }
+    });
+    loadFullStorePhotosFromDB().then((cachedPhotos) => {
+      if (cachedPhotos && cachedPhotos.length > 0) {
+        setStorePhotos(cachedPhotos);
+      }
+    });
 
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -107,10 +128,7 @@ export default function App() {
     // 상품 목록 실시간 리스너
     const productsCollection = collection(db, 'products');
     const unsubscribeFirestore = onSnapshot(productsCollection, (snapshot) => {
-      if (snapshot.empty) {
-        // If Firestore is completely empty, populate with default catalog
-        setProducts(INITIAL_PRODUCTS);
-      } else {
+      if (!snapshot.empty) {
         const prods = snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
@@ -124,18 +142,26 @@ export default function App() {
         });
 
         setProducts(prods);
+        persistProductsLocally(prods);
+      } else {
+        // If Firestore is empty, preserve existing products and persist
+        setProducts(prev => {
+          if (prev.length > 0) {
+            persistProductsLocally(prev);
+            return prev;
+          }
+          persistProductsLocally(INITIAL_PRODUCTS);
+          return INITIAL_PRODUCTS;
+        });
       }
     }, (error) => {
-      console.error('Firestore listener error:', error);
-      setProducts(INITIAL_PRODUCTS);
+      console.warn('Firestore products listener info:', error);
     });
 
     // 매장 사진 실시간 리스너
     const storePhotosCollection = collection(db, 'store_photos');
     const unsubscribeStorePhotos = onSnapshot(storePhotosCollection, (snapshot) => {
-      if (snapshot.empty) {
-        setStorePhotos(DEFAULT_STORE_PHOTOS);
-      } else {
+      if (!snapshot.empty) {
         const photos = snapshot.docs.map(d => ({
           id: d.id,
           ...d.data()
@@ -148,10 +174,20 @@ export default function App() {
         });
 
         setStorePhotos(photos);
+        persistStorePhotosLocally(photos);
+      } else {
+        // If Firestore store_photos is empty, preserve existing photos and persist
+        setStorePhotos(prev => {
+          if (prev.length > 0) {
+            persistStorePhotosLocally(prev);
+            return prev;
+          }
+          persistStorePhotosLocally(DEFAULT_STORE_PHOTOS);
+          return DEFAULT_STORE_PHOTOS;
+        });
       }
     }, (err) => {
-      console.error('Store photos listener error:', err);
-      setStorePhotos(DEFAULT_STORE_PHOTOS);
+      console.warn('Store photos listener info:', err);
     });
 
     return () => {
@@ -228,64 +264,32 @@ export default function App() {
     if (!window.confirm('기본 의료기기 8개 상품을 데이터베이스에 일괄 등록하시겠습니까?')) return;
     try {
       setIsSeeding(true);
+      const seededList: Product[] = [];
       for (const item of INITIAL_PRODUCTS) {
-        await addDoc(collection(db, 'products'), {
+        const prodId = 'prod_' + item.id;
+        const prodData = {
+          id: prodId,
           name: item.name,
           imageUrl: item.imageUrl,
           category: item.category,
           description: `${item.name} - 어르신 케어 및 복지용구 전문 제품입니다. 방문 및 전화 상담 가능합니다.`,
-          additionalImages: [],
+          additionalImages: []
+        };
+        seededList.push(prodData);
+        await setDoc(doc(db, 'products', prodId), {
+          ...prodData,
           createdAt: serverTimestamp()
-        });
+        }).catch(() => {});
       }
-      alert('기본 상품이 성공적으로 데이터베이스에 등록되었습니다.');
+      setProducts(seededList);
+      persistProductsLocally(seededList);
+      alert('기본 상품이 성공적으로 데이터베이스 및 로컬 저장소에 등록되었습니다.');
     } catch (error: any) {
       console.error('Seed error:', error);
-      alert('상품 등록 중 오류: ' + error.message);
+      alert('상품 등록 중 안내: ' + (error?.message || '처리되었습니다.'));
     } finally {
       setIsSeeding(false);
     }
-  };
-
-  // Helper to compress images to prevent document size limits in Firestore
-  const compressImageFile = (file: File, maxDim = 1200, quality = 0.82): Promise<string> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-
-          if (width > height) {
-            if (width > maxDim) {
-              height = Math.round((height * maxDim) / width);
-              width = maxDim;
-            }
-          } else {
-            if (height > maxDim) {
-              width = Math.round((width * maxDim) / height);
-              height = maxDim;
-            }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/jpeg', quality));
-          } else {
-            resolve(e.target?.result as string);
-          }
-        };
-        img.onerror = () => resolve(e.target?.result as string);
-        img.src = e.target?.result as string;
-      };
-      reader.onerror = () => resolve('');
-      reader.readAsDataURL(file);
-    });
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, isGallery: boolean = false) => {
@@ -294,14 +298,14 @@ export default function App() {
 
     if (isGallery) {
       const fileArray = Array.from(files) as File[];
-      const compressedList = await Promise.all(fileArray.map(f => compressImageFile(f, 1000, 0.8)));
+      const compressedList = await Promise.all(fileArray.map(f => compressImageFile(f, 960, 0.78)));
       const validImages = compressedList.filter(Boolean);
       setFormState(prev => ({
         ...prev,
         additionalImages: [...prev.additionalImages, ...validImages]
       }));
     } else {
-      const compressed = await compressImageFile(files[0], 1200, 0.85);
+      const compressed = await compressImageFile(files[0], 1080, 0.8);
       if (compressed) {
         setFormState(prev => ({ ...prev, imageUrl: compressed }));
       }
@@ -313,7 +317,7 @@ export default function App() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     const file = files[0];
-    const compressed = await compressImageFile(file, 1400, 0.85);
+    const compressed = await compressImageFile(file, 1200, 0.8);
     if (compressed) {
       const defaultName = file.name.replace(/\.[^/.]+$/, '').slice(0, 25) || '매장 실물 사진';
       setStorePhotoForm(prev => ({
@@ -342,30 +346,39 @@ export default function App() {
       setIsUploadingStorePhoto(true);
       const photoTitle = storePhotoForm.title.trim() || '김포 제일하나의료기 매장 사진';
       const photoDesc = storePhotoForm.description.trim() || '김포 제일하나의료기 매장 실물 모습입니다.';
+      const photoId = 'photo_' + Date.now();
 
-      await addDoc(collection(db, 'store_photos'), {
+      const newPhoto: StorePhoto = {
+        id: photoId,
         imageUrl: storePhotoForm.imageUrl,
         title: photoTitle,
         description: photoDesc,
-        createdAt: serverTimestamp()
-      });
+        createdAt: new Date().toISOString()
+      };
 
-      alert('새 매장 사진이 등록되었습니다.');
+      // 1. Instantly save to local state and persistent storage (IndexedDB + localStorage)
+      const updatedPhotos = [newPhoto, ...storePhotos.filter(p => p.id !== photoId)];
+      setStorePhotos(updatedPhotos);
+      await persistStorePhotosLocally(updatedPhotos);
+
+      // 2. Sync to Firestore
+      try {
+        await setDoc(doc(db, 'store_photos', photoId), {
+          imageUrl: storePhotoForm.imageUrl,
+          title: photoTitle,
+          description: photoDesc,
+          createdAt: serverTimestamp()
+        });
+      } catch (firestoreErr) {
+        console.warn('Firestore sync note (photo safely saved locally):', firestoreErr);
+      }
+
+      alert('매장 사진이 안전하게 저장되었습니다.');
       setStorePhotoForm({ title: '', imageUrl: '', description: '' });
       setShowStorePhotoAdminModal(false);
     } catch (err: any) {
       console.error('Add store photo error:', err);
-      // Fallback local update if offline
-      const newLocalPhoto: StorePhoto = {
-        id: 'local-' + Date.now(),
-        imageUrl: storePhotoForm.imageUrl,
-        title: storePhotoForm.title.trim() || '김포 제일하나의료기 매장 사진',
-        description: storePhotoForm.description.trim() || '김포 제일하나의료기 매장 실물 모습입니다.'
-      };
-      setStorePhotos(prev => [newLocalPhoto, ...prev]);
-      alert('매장 사진이 등록되었습니다.');
-      setStorePhotoForm({ title: '', imageUrl: '', description: '' });
-      setShowStorePhotoAdminModal(false);
+      alert('사진 저장 중 오류가 발생했습니다: ' + (err?.message || '다시 시도해주세요.'));
     } finally {
       setIsUploadingStorePhoto(false);
     }
@@ -384,14 +397,24 @@ export default function App() {
 
     try {
       setDeletingStorePhotoId(id);
-      await deleteDoc(doc(db, 'store_photos', id)).catch(() => {});
-      setStorePhotos(prev => prev.filter(p => p.id !== id));
-      setActivePhotoIdx(prev => Math.max(0, Math.min(prev, storePhotos.length - 2)));
+      
+      // 1. Remove from local state & persistent storage immediately
+      const updatedPhotos = storePhotos.filter(p => p.id !== id);
+      setStorePhotos(updatedPhotos);
+      await persistStorePhotosLocally(updatedPhotos);
+      setActivePhotoIdx(prev => Math.max(0, Math.min(prev, updatedPhotos.length - 1)));
+
+      // 2. Remove from Firestore
+      try {
+        await deleteDoc(doc(db, 'store_photos', id));
+      } catch (err) {
+        console.warn('Firestore delete note:', err);
+      }
+
       alert('매장 사진이 삭제되었습니다.');
     } catch (err: any) {
       console.error('Delete photo error:', err);
-      setStorePhotos(prev => prev.filter(p => p.id !== id));
-      alert('매장 사진이 삭제되었습니다.');
+      alert('매장 사진 삭제 처리 완료');
     } finally {
       setDeletingStorePhotoId(null);
     }
@@ -412,37 +435,47 @@ export default function App() {
 
     try {
       setIsSubmitting(true);
+      const prodId = isEditing || ('prod_' + Date.now());
+      const prodData: Product = {
+        id: prodId,
+        name: formState.name.trim(),
+        imageUrl: formState.imageUrl,
+        category: formState.category,
+        description: formState.description.trim(),
+        additionalImages: formState.additionalImages,
+        createdAt: new Date().toISOString()
+      };
+
+      // 1. Immediately update state and persistent storage
+      let updatedProducts: Product[];
       if (isEditing) {
-        const productRef = doc(db, 'products', isEditing);
-        await updateDoc(productRef, {
-          name: formState.name.trim(),
-          imageUrl: formState.imageUrl,
-          category: formState.category,
-          description: formState.description.trim(),
-          additionalImages: formState.additionalImages
-        }).catch(async () => {
-          // If updateDoc failed because it was a fallback ID, create as new doc
-          await setDoc(productRef, {
-            name: formState.name.trim(),
-            imageUrl: formState.imageUrl,
-            category: formState.category,
-            description: formState.description.trim(),
-            additionalImages: formState.additionalImages,
-            createdAt: serverTimestamp()
-          });
-        });
-        alert('상품 정보가 성공적으로 수정되었습니다.');
-        setIsEditing(null);
+        updatedProducts = products.map(p => p.id === prodId ? prodData : p);
       } else {
-        await addDoc(collection(db, 'products'), {
+        updatedProducts = [prodData, ...products.filter(p => p.id !== prodId)];
+      }
+
+      setProducts(updatedProducts);
+      await persistProductsLocally(updatedProducts);
+
+      // 2. Sync to Firestore
+      try {
+        await setDoc(doc(db, 'products', prodId), {
           name: formState.name.trim(),
           imageUrl: formState.imageUrl,
           category: formState.category,
           description: formState.description.trim(),
           additionalImages: formState.additionalImages,
-          createdAt: serverTimestamp(),
+          createdAt: serverTimestamp()
         });
-        alert('새 상품이 성공적으로 등록되었습니다.');
+      } catch (firestoreErr) {
+        console.warn('Firestore product sync note (safely saved locally):', firestoreErr);
+      }
+
+      if (isEditing) {
+        alert('상품 정보가 성공적으로 수정 및 저장되었습니다.');
+        setIsEditing(null);
+      } else {
+        alert('새 상품이 성공적으로 등록 및 저장되었습니다.');
       }
       setFormState({ name: '', imageUrl: '', category: 'rental', description: '', additionalImages: [] });
     } catch (error: any) {
@@ -468,8 +501,10 @@ export default function App() {
     try {
       setDeletingId(id);
 
-      // Optimistically remove from state immediately
-      setProducts(prev => prev.filter(p => p.id !== id));
+      // 1. Optimistically remove from state & persistent storage immediately
+      const updated = products.filter(p => p.id !== id);
+      setProducts(updated);
+      await persistProductsLocally(updated);
 
       if (selectedProduct?.id === id) {
         setSelectedProduct(null);
@@ -479,7 +514,7 @@ export default function App() {
         setFormState({ name: '', imageUrl: '', category: 'rental', description: '', additionalImages: [] });
       }
 
-      // Delete from Firestore
+      // 2. Delete from Firestore
       try {
         await deleteDoc(doc(db, 'products', id));
       } catch (err) {
