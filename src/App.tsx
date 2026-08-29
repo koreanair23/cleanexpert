@@ -54,10 +54,11 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [showEmergencyPassword, setShowEmergencyPassword] = useState(false);
   const [emergencyPasswordInput, setEmergencyPasswordInput] = useState('');
+  const [activeTab, setActiveTab] = useState<'all' | 'rental' | 'sale' | 'premium'>('all');
   const [formState, setFormState] = useState({ 
     name: '', 
     imageUrl: '', 
-    category: 'sale' as const, 
+    category: 'rental' as 'rental' | 'sale' | 'premium', 
     description: '', 
     additionalImages: [] as string[] 
   });
@@ -310,7 +311,7 @@ export default function App() {
         });
         alert('새 상품이 성공적으로 등록되었습니다.');
       }
-      setFormState({ name: '', imageUrl: '', category: 'sale', description: '', additionalImages: [] });
+      setFormState({ name: '', imageUrl: '', category: 'rental', description: '', additionalImages: [] });
     } catch (error: any) {
       console.error('Save product error:', error);
       alert('상품 저장 중 오류가 발생했습니다: ' + (error.message || '다시 시도해주세요.'));
@@ -342,7 +343,7 @@ export default function App() {
       }
       if (isEditing === id) {
         setIsEditing(null);
-        setFormState({ name: '', imageUrl: '', category: 'sale', description: '', additionalImages: [] });
+        setFormState({ name: '', imageUrl: '', category: 'rental', description: '', additionalImages: [] });
       }
 
       // Delete from Firestore
@@ -491,7 +492,7 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              {(Object.keys(CATEGORIES) as Array<keyof typeof CATEGORIES>).map((key, i) => {
+              {(['rental', 'sale', 'premium'] as Array<keyof typeof CATEGORIES>).map((key, i) => {
                 const cat = CATEGORIES[key];
                 const icons = [Package, ShoppingBag, Heart];
                 const Icon = icons[i];
@@ -522,7 +523,7 @@ export default function App() {
         {/* 물품 카탈로그 */}
         <section id="catalog" className="py-24 bg-slate-50 scroll-mt-20">
           <div className="max-w-7xl mx-auto px-4">
-            <div className="flex flex-col md:flex-row md:items-end justify-between mb-16 gap-8">
+            <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-8">
               <div className="max-w-2xl text-center md:text-left">
                 <h2 className="text-3xl md:text-5xl font-black text-[#000F1D] mb-6 tracking-tight">
                   주요 취급 물품 <span className="text-[#C29B2C]">목록</span>
@@ -582,91 +583,184 @@ export default function App() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-10">
-              <AnimatePresence mode="popLayout">
-                {products.map((product) => (
-                  <motion.div 
-                    layout
-                    key={product.id}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    onClick={() => setSelectedProduct(product)}
-                    className="group relative bg-white rounded-3xl overflow-hidden shadow-md hover:shadow-2xl transition-all border border-slate-200 cursor-pointer flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="aspect-[4/3] overflow-hidden bg-slate-100 relative">
-                        <img 
-                          src={product.imageUrl} 
-                          alt={product.name}
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-                        />
-                        {isAdmin && (
-                          <div className="absolute top-2 right-2 flex items-center gap-1.5 z-20">
-                            <button 
-                              title="상품 수정"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                startEdit(product);
-                              }}
-                              className="p-2 bg-[#000F1D]/90 text-[#D4AF37] rounded-xl shadow-lg hover:bg-[#000F1D] transition-all active:scale-90 backdrop-blur-sm"
-                            >
-                              <Edit2 size={14} />
-                            </button>
-                            <button 
-                              title="상품 삭제"
-                              disabled={deletingId === product.id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteProduct(product.id, product.name);
-                              }}
-                              className="p-2 bg-red-600 text-white rounded-xl shadow-lg hover:bg-red-700 transition-all active:scale-90 disabled:opacity-50"
-                            >
-                              <Trash2 size={14} className={deletingId === product.id ? 'animate-spin' : ''} />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      <div className="p-4 md:p-6 bg-white">
-                        <span className="text-[10px] md:text-[11px] uppercase tracking-widest text-[#C29B2C] font-black mb-1 md:mb-2 block">
-                          {CATEGORIES[product.category]?.title || '의료기기'}
-                        </span>
-                        <h4 className="text-[#000F1D] font-extrabold text-base md:text-xl truncate mb-1">
-                          {product.name}
-                        </h4>
-                      </div>
-                    </div>
+            {/* 카테고리 탭 네비게이션 */}
+            <div className="flex flex-wrap items-center gap-2.5 md:gap-3 mb-10">
+              <button
+                type="button"
+                onClick={() => setActiveTab('all')}
+                className={`px-5 py-3 rounded-2xl font-black text-sm transition-all flex items-center gap-2 ${
+                  activeTab === 'all'
+                    ? 'bg-[#000F1D] text-[#D4AF37] shadow-lg shadow-navy-900/20'
+                    : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                전체보기
+                <span className={`px-2 py-0.5 rounded-full text-xs font-black ${
+                  activeTab === 'all' ? 'bg-[#D4AF37]/20 text-[#D4AF37]' : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {products.length}
+                </span>
+              </button>
 
-                    {isAdmin && (
-                      <div className="px-4 pb-4 md:px-6 md:pb-6 pt-0 border-t border-slate-100 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startEdit(product);
-                          }}
-                          className="flex-1 py-2.5 text-xs font-black bg-slate-100 text-slate-800 rounded-xl hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5 active:scale-95"
-                        >
-                          <Edit2 size={13} /> 수정
-                        </button>
-                        <button
-                          type="button"
-                          disabled={deletingId === product.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteProduct(product.id, product.name);
-                          }}
-                          className="flex-1 py-2.5 text-xs font-black bg-red-50 text-red-600 border border-red-200 rounded-xl hover:bg-red-100 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 active:scale-95"
-                        >
-                          <Trash2 size={13} className={deletingId === product.id ? 'animate-spin' : ''} />
-                          {deletingId === product.id ? '삭제 중...' : '삭제'}
-                        </button>
+              {(['rental', 'sale', 'premium'] as Array<keyof typeof CATEGORIES>).map((catKey) => {
+                const cat = CATEGORIES[catKey];
+                const count = products.filter(p => p.category === catKey).length;
+                const isActive = activeTab === catKey;
+                return (
+                  <button
+                    key={catKey}
+                    type="button"
+                    onClick={() => setActiveTab(catKey)}
+                    className={`px-5 py-3 rounded-2xl font-black text-sm transition-all flex items-center gap-2 ${
+                      isActive
+                        ? 'bg-[#000F1D] text-[#D4AF37] shadow-lg shadow-navy-900/20'
+                        : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    {cat.title}
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-black ${
+                      isActive ? 'bg-[#D4AF37]/20 text-[#D4AF37]' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* 3대 카테고리별 분할 영역 */}
+            <div className="space-y-14">
+              {(['rental', 'sale', 'premium'] as Array<keyof typeof CATEGORIES>)
+                .filter(catKey => activeTab === 'all' || activeTab === catKey)
+                .map((catKey) => {
+                  const cat = CATEGORIES[catKey];
+                  const catProducts = products.filter(p => p.category === catKey);
+
+                  return (
+                    <div key={catKey} className="bg-white p-6 md:p-10 rounded-[36px] border border-slate-200/90 shadow-sm">
+                      {/* 카테고리 헤더 */}
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-6 mb-8 border-b border-slate-100">
+                        <div className="flex items-center gap-3">
+                          <span className="px-4 py-2 bg-[#000F1D] text-[#D4AF37] rounded-2xl text-base font-black tracking-tight shadow-md">
+                            {cat.title}
+                          </span>
+                          <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-xl">
+                            총 {catProducts.length}개 물품
+                          </span>
+                        </div>
+                        <p className="text-sm font-bold text-slate-700 border-l-4 border-[#C29B2C] pl-3 py-0.5">
+                          {cat.description}
+                        </p>
                       </div>
-                    )}
-                  </motion.div>
-                ))}
-              </AnimatePresence>
+
+                      {/* 카테고리 물품 그리드 */}
+                      {catProducts.length === 0 ? (
+                        <div className="py-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                          <p className="text-slate-500 font-bold text-sm">등록된 {cat.title}이 없습니다.</p>
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormState(prev => ({ ...prev, category: catKey }));
+                                document.getElementById('edit-section')?.scrollIntoView({ behavior: 'smooth' });
+                              }}
+                              className="mt-3 text-xs font-black text-[#C29B2C] hover:underline inline-block"
+                            >
+                              + 이 카테고리에 새 상품 등록하기
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-8">
+                          <AnimatePresence mode="popLayout">
+                            {catProducts.map((product) => (
+                              <motion.div 
+                                layout
+                                key={product.id}
+                                initial={{ opacity: 0, scale: 0.92 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.92 }}
+                                onClick={() => setSelectedProduct(product)}
+                                className="group relative bg-slate-50/70 hover:bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-2xl transition-all border border-slate-200 cursor-pointer flex flex-col justify-between"
+                              >
+                                <div>
+                                  <div className="aspect-[4/3] overflow-hidden bg-slate-100 relative">
+                                    <img 
+                                      src={product.imageUrl} 
+                                      alt={product.name}
+                                      referrerPolicy="no-referrer"
+                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                                    />
+                                    {isAdmin && (
+                                      <div className="absolute top-2 right-2 flex items-center gap-1.5 z-20">
+                                        <button 
+                                          title="상품 수정"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            startEdit(product);
+                                          }}
+                                          className="p-2 bg-[#000F1D]/90 text-[#D4AF37] rounded-xl shadow-lg hover:bg-[#000F1D] transition-all active:scale-90 backdrop-blur-sm"
+                                        >
+                                          <Edit2 size={14} />
+                                        </button>
+                                        <button 
+                                          title="상품 삭제"
+                                          disabled={deletingId === product.id}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            deleteProduct(product.id, product.name);
+                                          }}
+                                          className="p-2 bg-red-600 text-white rounded-xl shadow-lg hover:bg-red-700 transition-all active:scale-90 disabled:opacity-50"
+                                        >
+                                          <Trash2 size={14} className={deletingId === product.id ? 'animate-spin' : ''} />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="p-4 md:p-5">
+                                    <span className="text-[10px] md:text-[11px] uppercase tracking-widest text-[#C29B2C] font-black mb-1 block">
+                                      {CATEGORIES[product.category]?.title || '의료기기'}
+                                    </span>
+                                    <h4 className="text-[#000F1D] font-extrabold text-base md:text-lg truncate mb-1">
+                                      {product.name}
+                                    </h4>
+                                  </div>
+                                </div>
+
+                                {isAdmin && (
+                                  <div className="px-4 pb-4 pt-0 border-t border-slate-100 flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        startEdit(product);
+                                      }}
+                                      className="flex-1 py-2 text-xs font-black bg-slate-200/80 text-slate-800 rounded-xl hover:bg-slate-300 transition-all flex items-center justify-center gap-1.5 active:scale-95"
+                                    >
+                                      <Edit2 size={12} /> 수정
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={deletingId === product.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteProduct(product.id, product.name);
+                                      }}
+                                      className="flex-1 py-2 text-xs font-black bg-red-50 text-red-600 border border-red-200 rounded-xl hover:bg-red-100 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 active:scale-95"
+                                    >
+                                      <Trash2 size={12} className={deletingId === product.id ? 'animate-spin' : ''} />
+                                      {deletingId === product.id ? '삭제 중...' : '삭제'}
+                                    </button>
+                                  </div>
+                                )}
+                              </motion.div>
+                            ))}
+                          </AnimatePresence>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
             </div>
 
             {/* 관리자 물품 등록 및 전체 관리 구역 */}
@@ -688,7 +782,7 @@ export default function App() {
                       type="button"
                       onClick={() => {
                         setIsEditing(null);
-                        setFormState({ name: '', imageUrl: '', category: 'sale', description: '', additionalImages: [] });
+                        setFormState({ name: '', imageUrl: '', category: 'rental', description: '', additionalImages: [] });
                       }}
                       className="px-4 py-2 text-sm font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl"
                     >
@@ -718,9 +812,9 @@ export default function App() {
                         value={formState.category}
                         onChange={e => setFormState({...formState, category: e.target.value as any})}
                       >
-                        <option value="sale">판매 용품</option>
-                        <option value="rental">복지용구 대여</option>
-                        <option value="premium">비급여/프리미엄</option>
+                        <option value="rental">대여용품</option>
+                        <option value="sale">일반용품</option>
+                        <option value="premium">복지용구 판매용품</option>
                       </select>
                     </div>
 
@@ -812,7 +906,7 @@ export default function App() {
                           type="button" 
                           onClick={() => {
                             setIsEditing(null);
-                            setFormState({ name: '', imageUrl: '', category: 'sale', description: '', additionalImages: [] });
+                            setFormState({ name: '', imageUrl: '', category: 'rental', description: '', additionalImages: [] });
                           }}
                           className="flex-1 bg-slate-200 text-slate-700 py-4 rounded-2xl font-black hover:bg-slate-300 active:scale-95 transition-all"
                         >
