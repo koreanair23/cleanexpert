@@ -1362,6 +1362,7 @@ export default function App() {
                 <ul className="space-y-3 text-slate-300 text-sm font-medium">
                   <li className="flex gap-2 items-center">대표번호: 031-989-7295</li>
                   <li className="flex gap-2 items-center">상담문의: 010-3637-7295</li>
+                  <li className="flex gap-2 items-center">팩스번호: 031-989-7268</li>
                 </ul>
               </div>
               <div>
